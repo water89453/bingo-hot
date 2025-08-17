@@ -7,10 +7,10 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 
-/// ===================== Data Model =====================
+/// --------------------- Data Model ---------------------
 class Draw {
   final List<int> nums; // 20 balls
-  final int? superBall; // optional 1..80
+  final int? superBall; // 1..80
 
   Draw({required this.nums, this.superBall})
       : assert(nums.length == 20, 'nums must be 20');
@@ -32,7 +32,7 @@ class Draw {
   }
 }
 
-/// ===================== App =====================
+/// --------------------- App ---------------------
 void main() => runApp(const StatsApp());
 
 class StatsApp extends StatelessWidget {
@@ -55,9 +55,8 @@ class StatsHome extends StatefulWidget {
 
 class _StatsHomeState extends State<StatsHome> {
   List<Draw> draws = [];
-  int sampleSize = 100;
+  int sampleSize = 200;
 
-  // ---------- Storage: File (mobile) or SharedPreferences (web) ----------
   static const _spKey = 'draws_json';
 
   Future<String?> _readRaw() async {
@@ -97,7 +96,7 @@ class _StatsHomeState extends State<StatsHome> {
       setState(() {
         draws = data.map(Draw.fromJson).toList();
       });
-    } catch (_) {/* ignore */}
+    } catch (_) {}
   }
 
   Future<void> _save() async {
@@ -105,23 +104,14 @@ class _StatsHomeState extends State<StatsHome> {
     await _writeRaw(jsonEncode(data));
   }
 
-  void _addDraw(Draw d) {
-    setState(() {
-      draws.insert(0, d); // 最新在最前
-    });
-  }
+  void _addDraw(Draw d) => setState(() => draws.insert(0, d));
+  void _addMany(List<Draw> list) =>
+      setState(() => draws.insertAll(0, list.reversed));
 
-  void _addMany(List<Draw> list) {
-    setState(() {
-      draws.insertAll(0, list.reversed); // 保持原順序：舊在後、新在前
-    });
-  }
-
-  // ---------- Stats ----------
+  // --------------------- Stats ---------------------
   Map<int, int> _countFreq() {
     final freq = <int, int>{};
-    final recent = draws.take(sampleSize);
-    for (final d in recent) {
+    for (final d in draws.take(sampleSize)) {
       for (final n in d.nums) {
         freq[n] = (freq[n] ?? 0) + 1;
       }
@@ -131,17 +121,16 @@ class _StatsHomeState extends State<StatsHome> {
 
   Map<int, int> _countSuperFreq() {
     final freq = <int, int>{};
-    final recent = draws.take(sampleSize);
-    for (final d in recent) {
+    for (final d in draws.take(sampleSize)) {
       final s = d.superBall;
       if (s != null) freq[s] = (freq[s] ?? 0) + 1;
     }
     return freq;
   }
 
-  double _safeRatio(int count, int total) {
-    if (total <= 0) return 0.0;
-    final v = count / total;
+  double _ratioPerIssue(int count, int issues) {
+    if (issues <= 0) return 0.0;
+    final v = count / issues;
     return v.isFinite ? v.clamp(0.0, 1.0) : 0.0;
   }
 
@@ -153,7 +142,7 @@ class _StatsHomeState extends State<StatsHome> {
     return top.map((e) => '${e.key}（${e.value} 次）').join('、');
   }
 
-  // ---------- CSV Import：分批解析 + 進度條（Web 不卡） ----------
+  // --------------------- CSV Import (batched + progress) ---------------------
   Future<void> _importCsv() async {
     try {
       final picked = await FilePicker.platform.pickFiles(
@@ -196,9 +185,7 @@ class _StatsHomeState extends State<StatsHome> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    LinearProgressIndicator(
-                      value: progress == 0 ? null : progress,
-                    ),
+                    LinearProgressIndicator(value: progress == 0 ? null : progress),
                     const SizedBox(height: 12),
                     Text('${(progress * 100).toStringAsFixed(0)}%'),
                   ],
@@ -211,7 +198,7 @@ class _StatsHomeState extends State<StatsHome> {
 
       await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      final parsed = await _parseCsvWithYield(
+      final parsed = await _parseCsvByColumnsWithYield(
         csvText,
         onProgress: (p) {
           progress = p;
@@ -237,9 +224,7 @@ class _StatsHomeState extends State<StatsHome> {
         SnackBar(content: Text('CSV 匯入完成：成功 ${parsed.length} 筆')),
       );
     } catch (e) {
-      if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
-      }
+      if (Navigator.of(context).canPop()) Navigator.of(context).pop();
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('CSV 匯入失敗：$e')),
@@ -247,8 +232,8 @@ class _StatsHomeState extends State<StatsHome> {
     }
   }
 
-  /// 逐行分批解析（第21顆視為超級獎號；前20顆去重），每 400 行讓出事件迴圈並回報進度
-  Future<List<Draw>> _parseCsvWithYield(
+  /// 欄位式解析（只讀第 7~26 欄為獎號1~20；第 27 欄為超級獎號），每 400 行讓出事件迴圈。
+  Future<List<Draw>> _parseCsvByColumnsWithYield(
     String csvText, {
     void Function(double progress)? onProgress,
   }) async {
@@ -257,27 +242,21 @@ class _StatsHomeState extends State<StatsHome> {
     final total = lines.isEmpty ? 1 : lines.length;
     int done = 0;
 
-    for (final line in lines) {
+    for (final raw in lines) {
       done++;
-
-      final matches = RegExp(r'\d+').allMatches(line);
-      final vals = <int>[];
-      for (final m in matches) {
-        final v = int.tryParse(m.group(0)!);
-        if (v != null && v >= 1 && v <= 80) vals.add(v);
-      }
-
-      if (vals.length >= 20) {
-        int? superBall;
-        if (vals.length >= 21) {
-          superBall = vals.last;
-          vals.removeLast();
-        }
+      // 簡單 CSV split（官方檔基本沒引號）；若你之後遇到含引號/逗號的欄位，再換成 csv 套件
+      final cols = raw.split(',');
+      if (cols.length >= 27) {
         final set = <int>{};
-        for (final v in vals) {
-          set.add(v);
-          if (set.length == 20) break;
+        // 獎號 1..20 => index 6..25
+        for (int i = 6; i <= 25; i++) {
+          final v = int.tryParse(cols[i].trim());
+          if (v != null && v >= 1 && v <= 80) set.add(v);
         }
+        int? superBall;
+        final sb = int.tryParse(cols[26].trim());
+        if (sb != null && sb >= 1 && sb <= 80) superBall = sb;
+
         if (set.length == 20) {
           out.add(Draw(nums: set.toList()..sort(), superBall: superBall));
         }
@@ -294,14 +273,14 @@ class _StatsHomeState extends State<StatsHome> {
 
   @override
   Widget build(BuildContext context) {
+    final issues = draws.take(sampleSize).length; // 期數
     final freq = _countFreq();
     final superFreq = _countSuperFreq();
 
-    final issues = draws.take(sampleSize).length;
-    final totalBalls = issues * 20;
+    // 以「期數」為分母（理論約 25%）
     final probs = List<double>.generate(
       81,
-      (i) => i == 0 ? 0.0 : _safeRatio(freq[i] ?? 0, totalBalls),
+      (i) => i == 0 ? 0.0 : _ratioPerIssue(freq[i] ?? 0, issues),
     );
     final maxP = probs.skip(1).fold<double>(0.0, (m, e) => e > m ? e : m);
     final minP = probs.skip(1).fold<double>(1.0, (m, e) => e < m ? e : m);
@@ -346,19 +325,16 @@ class _StatsHomeState extends State<StatsHome> {
                 DropdownButton<int>(
                   value: sampleSize,
                   items: const [50, 100, 200, 500]
-                      .map((e) =>
-                          DropdownMenuItem(value: e, child: Text('近 $e 期')))
+                      .map((e) => DropdownMenuItem(value: e, child: Text('近 $e 期')))
                       .toList(),
-                  onChanged: (v) => setState(() => sampleSize = v ?? 100),
+                  onChanged: (v) => setState(() => sampleSize = v ?? 200),
                 ),
                 const SizedBox(width: 12),
                 Text('樣本：$issues 期（理論單號約 25%）',
                     style: const TextStyle(fontSize: 12)),
                 const Spacer(),
-                Text(
-                  '超級獎號 Top3：${_top3Text(superFreq)}',
-                  style: const TextStyle(fontSize: 12),
-                ),
+                Text('超級獎號 Top3：${_top3Text(superFreq)}',
+                    style: const TextStyle(fontSize: 12)),
               ],
             ),
           ),
@@ -371,17 +347,15 @@ class _StatsHomeState extends State<StatsHome> {
                 for (var i = 1; i <= 80; i++)
                   Builder(builder: (context) {
                     final p = probs[i];
-                    final t =
-                        (maxP - minP) > 0 ? (p - minP) / (maxP - minP) : 0.5;
+                    final t = (maxP - minP) > 0 ? (p - minP) / (maxP - minP) : 0.5;
                     final color = Color.lerp(
                         Colors.blue.shade100, Colors.red.shade400, t)!;
-                    final percent =
-                        (totalBalls == 0) ? 0.0 : (freq[i] ?? 0) / totalBalls;
+                    final times = freq[i] ?? 0;
                     return Card(
                       color: color,
                       child: Center(
                         child: Text(
-                          '$i\n${(percent * 100).toStringAsFixed(1)}%\n(${freq[i] ?? 0} 次)',
+                          '$i\n${(p * 100).toStringAsFixed(1)}%\n（${times}次）',
                           textAlign: TextAlign.center,
                           style: const TextStyle(fontSize: 12),
                         ),
@@ -391,7 +365,7 @@ class _StatsHomeState extends State<StatsHome> {
               ],
             ),
           ),
-          _BarSection(probs: probs, drawsEmpty: draws.isEmpty),
+          _BarSection(probs: probs, issues: issues),
         ],
       ),
       floatingActionButton: FloatingActionButton(
@@ -420,11 +394,11 @@ class _StatsHomeState extends State<StatsHome> {
   }
 }
 
-/// ===================== Bar Section =====================
+/// --------------------- Bar Section ---------------------
 class _BarSection extends StatelessWidget {
-  final List<double> probs; // index 1..80 used
-  final bool drawsEmpty;
-  const _BarSection({required this.probs, required this.drawsEmpty});
+  final List<double> probs; // index 1..80 used，分母=期數
+  final int issues;
+  const _BarSection({required this.probs, required this.issues});
 
   @override
   Widget build(BuildContext context) {
@@ -437,14 +411,14 @@ class _BarSection extends StatelessWidget {
           width: chartWidth,
           child: BarChart(
             BarChartData(
-              maxY: drawsEmpty ? 0.35 : null,
+              maxY: 0.6, // 給個上限 60% 比較好看；可調
               barTouchData: BarTouchData(enabled: false),
               gridData: const FlGridData(show: true),
               titlesData: FlTitlesData(
                 leftTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
-                    reservedSize: 32,
+                    reservedSize: 36,
                     getTitlesWidget: (v, meta) =>
                         Text(v.toStringAsFixed(2), style: const TextStyle(fontSize: 10)),
                   ),
@@ -491,7 +465,7 @@ class _BarSection extends StatelessWidget {
   }
 }
 
-/// ===================== Quick Add (20 + Super) =====================
+/// --------------------- Quick Add Dialog ---------------------
 class _QuickAddDialog extends StatefulWidget {
   const _QuickAddDialog();
   @override
@@ -557,7 +531,6 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
               ),
             ),
             const SizedBox(height: 6),
-            // 超級獎號：下拉選單（不會擋住）
             Row(
               children: [
                 const Text('超級獎號：'),
@@ -610,11 +583,10 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
         FilledButton(
           onPressed: (sel.length == 20)
               ? () {
-                  final out = {
+                  Navigator.pop(context, {
                     'nums': sel.toList()..sort(),
                     'super': superBall,
-                  };
-                  Navigator.pop(context, out);
+                  });
                 }
               : null,
           child: const Text('確定'),
@@ -624,7 +596,7 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
   }
 }
 
-/// ===================== Paste Import (20 or 21 per line) =====================
+/// --------------------- Paste Import Dialog ---------------------
 class _PasteDialog extends StatefulWidget {
   const _PasteDialog();
   @override
@@ -637,7 +609,7 @@ class _PasteDialogState extends State<_PasteDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('貼上歷史開獎（每行 20 或 21 顆；第21顆為超級獎號）'),
+      title: const Text('貼上歷史開獎（每行 20 或 21 顆；第 21 顆為超級獎號）'),
       content: SizedBox(
         width: 520,
         child: TextField(
@@ -652,28 +624,25 @@ class _PasteDialogState extends State<_PasteDialog> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(
-          child: const Text('匯入'),
           onPressed: () {
             final lines = const LineSplitter().convert(_controller.text);
             final out = <Draw>[];
             for (final line in lines) {
-              final matches = RegExp(r'\d+').allMatches(line);
-              final values = <int>[];
-              for (final m in matches) {
+              final nums = <int>[];
+              for (final m in RegExp(r'\d+').allMatches(line)) {
                 final v = int.tryParse(m.group(0)!);
-                if (v != null && v >= 1 && v <= 80) values.add(v);
+                if (v != null && v >= 1 && v <= 80) nums.add(v);
               }
-              if (values.isEmpty) continue;
-
+              if (nums.isEmpty) continue;
               int? superBall;
-              if (values.length >= 21) {
-                superBall = values.last;
-                values.removeLast();
+              if (nums.length >= 21) {
+                superBall = nums.last;
+                nums.removeLast();
               }
               final set = <int>{};
-              for (final v in values) {
-                if (set.length == 20) break;
+              for (final v in nums) {
                 set.add(v);
+                if (set.length == 20) break;
               }
               if (set.length == 20) {
                 out.add(Draw(nums: set.toList()..sort(), superBall: superBall));
@@ -681,6 +650,7 @@ class _PasteDialogState extends State<_PasteDialog> {
             }
             Navigator.pop(context, out);
           },
+          child: const Text('匯入'),
         ),
       ],
     );
