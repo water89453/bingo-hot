@@ -232,7 +232,8 @@ class _StatsHomeState extends State<StatsHome> {
     }
   }
 
-  /// 欄位式解析（只讀第 7~26 欄為獎號1~20；第 27 欄為超級獎號），每 400 行讓出事件迴圈。
+  /// 欄位式解析：獎號1~20 = index 6..25；超級獎號 = index 26。
+  /// 每 400 行讓出事件迴圈，避免 UI 卡住。
   Future<List<Draw>> _parseCsvByColumnsWithYield(
     String csvText, {
     void Function(double progress)? onProgress,
@@ -244,11 +245,9 @@ class _StatsHomeState extends State<StatsHome> {
 
     for (final raw in lines) {
       done++;
-      // 簡單 CSV split（官方檔基本沒引號）；若你之後遇到含引號/逗號的欄位，再換成 csv 套件
       final cols = raw.split(',');
       if (cols.length >= 27) {
         final set = <int>{};
-        // 獎號 1..20 => index 6..25
         for (int i = 6; i <= 25; i++) {
           final v = int.tryParse(cols[i].trim());
           if (v != null && v >= 1 && v <= 80) set.add(v);
@@ -411,7 +410,7 @@ class _BarSection extends StatelessWidget {
           width: chartWidth,
           child: BarChart(
             BarChartData(
-              maxY: 0.6, // 給個上限 60% 比較好看；可調
+              maxY: 0.6, // 上限 60%，可調
               barTouchData: BarTouchData(enabled: false),
               gridData: const FlGridData(show: true),
               titlesData: FlTitlesData(
@@ -465,7 +464,7 @@ class _BarSection extends StatelessWidget {
   }
 }
 
-/// --------------------- Quick Add Dialog ---------------------
+/// --------------------- Quick Add Dialog（只允許從已選 20 顆挑超級獎號） ---------------------
 class _QuickAddDialog extends StatefulWidget {
   const _QuickAddDialog();
   @override
@@ -480,14 +479,22 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
     setState(() {
       if (sel.contains(n)) {
         sel.remove(n);
+        if (superBall == n) superBall = null; // 取消到超級獎號時一併清空
       } else if (sel.length < 20) {
         sel.add(n);
       }
     });
   }
 
+  void _setSuper(int n) {
+    if (!sel.contains(n)) return;
+    setState(() => superBall = n);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final selectedSorted = sel.toList()..sort();
+
     return AlertDialog(
       title: Row(
         children: [
@@ -509,22 +516,33 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
                   for (int i = 1; i <= 80; i++)
                     GestureDetector(
                       onTap: () => _toggle(i),
-                      child: Card(
-                        color: sel.contains(i)
-                            ? Colors.teal.shade400
-                            : Colors.grey.shade300,
-                        child: Center(
-                          child: Text(
-                            '$i',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: sel.contains(i)
-                                  ? Colors.white
-                                  : Colors.black87,
+                      onLongPress: () => _setSuper(i), // 長按直接設為超級獎號
+                      child: Stack(
+                        children: [
+                          Card(
+                            color: sel.contains(i)
+                                ? Colors.teal.shade400
+                                : Colors.grey.shade300,
+                            child: Center(
+                              child: Text(
+                                '$i',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: sel.contains(i)
+                                      ? Colors.white
+                                      : Colors.black87,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                          if (i == superBall)
+                            const Positioned(
+                              right: 4,
+                              top: 4,
+                              child: Icon(Icons.star, size: 16, color: Colors.amber),
+                            ),
+                        ],
                       ),
                     ),
                 ],
@@ -536,21 +554,23 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
                 const Text('超級獎號：'),
                 const SizedBox(width: 8),
                 DropdownButton<int>(
+                  hint: const Text('從已選 20 顆中選擇'),
                   value: superBall,
-                  hint: const Text('選擇 1~80'),
                   items: [
-                    for (int i = 1; i <= 80; i++)
-                      DropdownMenuItem(value: i, child: Text('$i')),
+                    for (final v in selectedSorted)
+                      DropdownMenuItem(value: v, child: Text('$v')),
                   ],
                   onChanged: (v) => setState(() => superBall = v),
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {
-                    final pool = List<int>.generate(80, (i) => i + 1)..shuffle();
-                    setState(() => superBall = pool.first);
-                  },
-                  child: const Text('隨機一顆'),
+                  onPressed: selectedSorted.isEmpty
+                      ? null
+                      : () {
+                          selectedSorted.shuffle();
+                          setState(() => superBall = selectedSorted.first);
+                        },
+                  child: const Text('隨機一顆（從已選）'),
                 ),
               ],
             ),
@@ -574,14 +594,13 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
               if (sel.length >= 20) break;
               sel.add(v);
             }
-            superBall ??=
-                rnd.firstWhere((v) => !sel.contains(v), orElse: () => rnd[0]);
-            setState(() {});
+            final s = (sel.toList()..shuffle()).first; // 超級獎號必須在已選集合內
+            setState(() => superBall = s);
           },
           child: const Text('隨機'),
         ),
         FilledButton(
-          onPressed: (sel.length == 20)
+          onPressed: (sel.length == 20 && superBall != null)
               ? () {
                   Navigator.pop(context, {
                     'nums': sel.toList()..sort(),
