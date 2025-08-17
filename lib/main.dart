@@ -6,7 +6,6 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:csv/csv.dart';
 
 /// ===================== Data Model =====================
 class Draw {
@@ -22,7 +21,6 @@ class Draw {
       };
 
   static Draw fromJson(dynamic e) {
-    // Backward compatible: old format was List of 20 ints
     if (e is List) {
       final nums = List<int>.from(e)..sort();
       return Draw(nums: nums);
@@ -39,7 +37,6 @@ void main() => runApp(const StatsApp());
 
 class StatsApp extends StatelessWidget {
   const StatsApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -112,7 +109,12 @@ class _StatsHomeState extends State<StatsHome> {
     setState(() {
       draws.insert(0, d); // 最新在最前
     });
-    _save();
+  }
+
+  void _addMany(List<Draw> list) {
+    setState(() {
+      draws.insertAll(0, list.reversed); // 保持原順序：舊在後、新在前
+    });
   }
 
   // ---------- Stats ----------
@@ -151,65 +153,143 @@ class _StatsHomeState extends State<StatsHome> {
     return top.map((e) => '${e.key}（${e.value} 次）').join('、');
   }
 
-  // ---------- CSV Import ----------
+  // ---------- CSV Import：分批解析 + 進度條（Web 不卡） ----------
   Future<void> _importCsv() async {
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['csv'],
-        withData: true, // web 需要 bytes
+        withData: kIsWeb,
       );
-      if (result == null) return;
+      if (picked == null) return;
 
-      final fileBytes = result.files.single.bytes;
-      if (fileBytes == null) return;
+      String csvText;
+      if (kIsWeb) {
+        final bytes = picked.files.single.bytes;
+        if (bytes == null) return;
+        const bom = [0xEF, 0xBB, 0xBF];
+        final b = (bytes.length >= 3 &&
+                bytes[0] == bom[0] &&
+                bytes[1] == bom[1] &&
+                bytes[2] == bom[2])
+            ? bytes.sublist(3)
+            : bytes;
+        csvText = utf8.decode(b, allowMalformed: true);
+      } else {
+        final path = picked.files.single.path;
+        if (path == null) return;
+        csvText = await File(path).readAsString();
+      }
 
-      final csvString = String.fromCharCodes(fileBytes);
-      final rows = const CsvToListConverter(eol: '\n').convert(csvString);
+      double progress = 0.0;
+      late StateSetter setModal;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => StatefulBuilder(
+          builder: (_, _set) {
+            setModal = _set;
+            return AlertDialog(
+              title: const Text('匯入中…'),
+              content: SizedBox(
+                width: 320,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    LinearProgressIndicator(
+                      value: progress == 0 ? null : progress,
+                    ),
+                    const SizedBox(height: 12),
+                    Text('${(progress * 100).toStringAsFixed(0)}%'),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
 
-      int ok = 0;
-      for (final row in rows) {
-        if (row.isEmpty) continue;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        // 取出該列中所有 1..80 的整數
-        final vals = <int>[];
-        for (final cell in row) {
-          final s = cell.toString().trim();
-          final v = int.tryParse(s);
-          if (v != null && v >= 1 && v <= 80) {
-            vals.add(v);
-          }
-        }
-        if (vals.length < 20) continue;
+      final parsed = await _parseCsvWithYield(
+        csvText,
+        onProgress: (p) {
+          progress = p;
+          setModal(() {});
+        },
+      );
 
+      if (context.mounted) Navigator.of(context).pop();
+
+      if (parsed.isEmpty) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('CSV 解析不到有效資料')),
+        );
+        return;
+      }
+
+      _addMany(parsed);
+      await _save();
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('CSV 匯入完成：成功 ${parsed.length} 筆')),
+      );
+    } catch (e) {
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('CSV 匯入失敗：$e')),
+      );
+    }
+  }
+
+  /// 逐行分批解析（第21顆視為超級獎號；前20顆去重），每 400 行讓出事件迴圈並回報進度
+  Future<List<Draw>> _parseCsvWithYield(
+    String csvText, {
+    void Function(double progress)? onProgress,
+  }) async {
+    final lines = const LineSplitter().convert(csvText);
+    final out = <Draw>[];
+    final total = lines.isEmpty ? 1 : lines.length;
+    int done = 0;
+
+    for (final line in lines) {
+      done++;
+
+      final matches = RegExp(r'\d+').allMatches(line);
+      final vals = <int>[];
+      for (final m in matches) {
+        final v = int.tryParse(m.group(0)!);
+        if (v != null && v >= 1 && v <= 80) vals.add(v);
+      }
+
+      if (vals.length >= 20) {
         int? superBall;
-        // 若 >=21 顆，最後一顆視為超級獎號；前面取 20 顆不重複
         if (vals.length >= 21) {
           superBall = vals.last;
           vals.removeLast();
         }
-
         final set = <int>{};
         for (final v in vals) {
           set.add(v);
           if (set.length == 20) break;
         }
         if (set.length == 20) {
-          _addDraw(Draw(nums: set.toList()..sort(), superBall: superBall));
-          ok++;
+          out.add(Draw(nums: set.toList()..sort(), superBall: superBall));
         }
       }
 
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV 匯入完成：成功 $ok 筆')),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV 匯入失敗：$e')),
-      );
+      if (done % 400 == 0) {
+        onProgress?.call(done / total);
+        await Future<void>.delayed(Duration.zero);
+      }
     }
+    onProgress?.call(1.0);
+    return out;
   }
 
   @override
@@ -230,7 +310,6 @@ class _StatsHomeState extends State<StatsHome> {
       appBar: AppBar(
         title: const Text('Bingo 歷史熱度（近 N 期）'),
         actions: [
-          // 文字貼上匯入
           IconButton(
             tooltip: '貼上匯入（多筆）',
             icon: const Icon(Icons.assignment),
@@ -240,19 +319,15 @@ class _StatsHomeState extends State<StatsHome> {
                 builder: (_) => const _PasteDialog(),
               );
               if (rows != null && rows.isNotEmpty) {
-                int ok = 0;
-                for (final r in rows) {
-                  _addDraw(r);
-                  ok++;
-                }
+                _addMany(rows);
+                await _save();
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('匯入完成：成功 $ok 筆')),
+                  SnackBar(content: Text('匯入完成：成功 ${rows.length} 筆')),
                 );
               }
             },
           ),
-          // CSV 匯入
           IconButton(
             tooltip: '匯入 CSV',
             icon: const Icon(Icons.upload_file),
@@ -262,7 +337,6 @@ class _StatsHomeState extends State<StatsHome> {
       ),
       body: Column(
         children: [
-          // 控制列
           Padding(
             padding: const EdgeInsetsDirectional.fromSTEB(12, 8, 12, 0),
             child: Row(
@@ -289,7 +363,6 @@ class _StatsHomeState extends State<StatsHome> {
             ),
           ),
           const SizedBox(height: 8),
-          // 1~80 號熱度卡片
           Expanded(
             child: GridView.count(
               padding: const EdgeInsets.all(8),
@@ -318,7 +391,6 @@ class _StatsHomeState extends State<StatsHome> {
               ],
             ),
           ),
-          // 長條圖：可水平捲動、每 5 刻度
           _BarSection(probs: probs, drawsEmpty: draws.isEmpty),
         ],
       ),
@@ -335,6 +407,7 @@ class _StatsHomeState extends State<StatsHome> {
             final nums = (result["nums"] as List<int>)..sort();
             final s = result["super"] as int?;
             _addDraw(Draw(nums: nums, superBall: s));
+            await _save();
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('已新增 1 筆（超級獎號：${s ?? "無"}）')),
@@ -355,7 +428,7 @@ class _BarSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chartWidth = 80 * 12.0; // 每根約 12px
+    final chartWidth = 80 * 12.0;
     return SizedBox(
       height: 200,
       child: SingleChildScrollView(
@@ -421,7 +494,6 @@ class _BarSection extends StatelessWidget {
 /// ===================== Quick Add (20 + Super) =====================
 class _QuickAddDialog extends StatefulWidget {
   const _QuickAddDialog();
-
   @override
   State<_QuickAddDialog> createState() => _QuickAddDialogState();
 }
@@ -452,10 +524,9 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
       ),
       content: SizedBox(
         width: 540,
-        height: 560,
+        height: 520,
         child: Column(
           children: [
-            // 1~80 選 20 顆
             Expanded(
               child: GridView.count(
                 crossAxisCount: 8,
@@ -486,24 +557,27 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
               ),
             ),
             const SizedBox(height: 6),
-            // 超級獎號
+            // 超級獎號：下拉選單（不會擋住）
             Row(
               children: [
                 const Text('超級獎號：'),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: -6,
-                    children: [
-                      for (int i = 1; i <= 80; i++)
-                        ChoiceChip(
-                          label: Text('$i'),
-                          selected: superBall == i,
-                          onSelected: (_) => setState(() => superBall = i),
-                        ),
-                    ],
-                  ),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  value: superBall,
+                  hint: const Text('選擇 1~80'),
+                  items: [
+                    for (int i = 1; i <= 80; i++)
+                      DropdownMenuItem(value: i, child: Text('$i')),
+                  ],
+                  onChanged: (v) => setState(() => superBall = v),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () {
+                    final pool = List<int>.generate(80, (i) => i + 1)..shuffle();
+                    setState(() => superBall = pool.first);
+                  },
+                  child: const Text('隨機一顆'),
                 ),
               ],
             ),
@@ -522,7 +596,6 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
         ),
         TextButton(
           onPressed: () {
-            // 隨機補到 20 顆；超級獎號也隨機一顆
             final rnd = List<int>.generate(80, (i) => i + 1)..shuffle();
             for (final v in rnd) {
               if (sel.length >= 20) break;
@@ -535,11 +608,11 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
           child: const Text('隨機'),
         ),
         FilledButton(
-          onPressed: (sel.length == 20 && superBall != null)
+          onPressed: (sel.length == 20)
               ? () {
                   final out = {
                     'nums': sel.toList()..sort(),
-                    'super': superBall!,
+                    'super': superBall,
                   };
                   Navigator.pop(context, out);
                 }
@@ -572,7 +645,7 @@ class _PasteDialogState extends State<_PasteDialog> {
           maxLines: 12,
           decoration: const InputDecoration(
             hintText:
-                '每行：20 顆一般獎號（1..80），可選第 21 顆為超級獎號。\n空白/逗號皆可。\n例：\n1 2 3 ... 20  |  1,3,5,...,39,41 67',
+                '每行：20 顆一般獎號（1..80），可加第 21 顆為超級獎號。\n空白/逗號皆可。\n例：\n1 2 3 ... 20  |  1,3,5,...,39,41 67',
           ),
         ),
       ),
@@ -584,15 +657,10 @@ class _PasteDialogState extends State<_PasteDialog> {
             final lines = const LineSplitter().convert(_controller.text);
             final out = <Draw>[];
             for (final line in lines) {
-              final toks = line
-                  .replaceAll(RegExp(r'[^0-9,\s\t]'), ' ')
-                  .split(RegExp(r'[\s,]+'))
-                  .where((t) => t.isNotEmpty)
-                  .toList();
-
+              final matches = RegExp(r'\d+').allMatches(line);
               final values = <int>[];
-              for (final t in toks) {
-                final v = int.tryParse(t);
+              for (final m in matches) {
+                final v = int.tryParse(m.group(0)!);
                 if (v != null && v >= 1 && v <= 80) values.add(v);
               }
               if (values.isEmpty) continue;
