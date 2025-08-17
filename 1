@@ -1,0 +1,305 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:path_provider/path_provider.dart';
+
+class StatsApp extends StatelessWidget {
+  const StatsApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Bingo 歷史熱度',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const StatsHome(),
+    );
+  }
+}
+
+class StatsHome extends StatefulWidget {
+  const StatsHome({super.key});
+
+  @override
+  State<StatsHome> createState() => _StatsHomeState();
+}
+
+class _StatsHomeState extends State<StatsHome> {
+  List<List<int>> draws = [];
+  int sampleSize = 200;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<File> get _localFile async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/draws.json');
+  }
+
+  Future<void> _load() async {
+    try {
+      final file = await _localFile;
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final List<dynamic> data = jsonDecode(content);
+        setState(() {
+          draws = data.map((e) => List<int>.from(e)).toList();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _save() async {
+    final file = await _localFile;
+    await file.writeAsString(jsonEncode(draws));
+  }
+
+  double safePercent(int count, int total) {
+    if (total <= 0) return 0.0;
+    final v = (count / total * 100);
+    return v.isFinite ? v.clamp(0, 100) : 0.0;
+  }
+
+  double safeRatio(int count, int total) {
+    if (total <= 0) return 0.0;
+    final v = (count / total);
+    return v.isFinite ? v.clamp(0.0, 1.0) : 0.0;
+  }
+
+  Map<int, int> _countFreq() {
+    final freq = <int, int>{};
+    final recent = draws.take(sampleSize).toList();
+    for (var d in recent) {
+      for (var n in d) {
+        freq[n] = (freq[n] ?? 0) + 1;
+      }
+    }
+    return freq;
+  }
+
+  void _addDraw(List<int> nums) {
+    setState(() {
+      draws.insert(0, nums);
+    });
+    _save();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final freq = _countFreq();
+    final totalBalls = draws.take(sampleSize).length * 20;
+
+    final probs = List<double>.generate(81, (i) => i == 0 ? 0.0 : safeRatio(freq[i] ?? 0, totalBalls));
+    final maxP = (draws.isEmpty) ? 0.0 : probs.skip(1).reduce((a, b) => a > b ? a : b);
+    final minP = (draws.isEmpty) ? 0.0 : probs.skip(1).reduce((a, b) => a < b ? a : b);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Bingo 歷史熱度（近 N 期）'),
+        actions: [
+          IconButton(
+            tooltip: '貼上匯入（多筆）',
+            icon: const Icon(Icons.file_upload),
+            onPressed: () async {
+              final rows = await showDialog<List<List<int>>>(
+                context: context,
+                builder: (_) => const _PasteDialog(),
+              );
+              if (rows != null && rows.isNotEmpty) {
+                int ok = 0;
+                for (final r in rows) {
+                  if (r.length == 20) { _addDraw(r); ok++; }
+                }
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('匯入完成：成功 $ok 筆')),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          DropdownButton<int>(
+            value: sampleSize,
+            items: const [50, 100, 200, 500]
+                .map((e) => DropdownMenuItem(value: e, child: Text('近 $e 期')))
+                .toList(),
+            onChanged: (v) => setState(() => sampleSize = v ?? 200),
+          ),
+          Expanded(
+            child: GridView.count(
+              crossAxisCount: 8,
+              children: [
+                for (var i = 1; i <= 80; i++)
+                  Builder(builder: (context) {
+                    final p = probs[i];
+                    final t = (maxP - minP) > 0 ? (p - minP) / (maxP - minP) : 0.5;
+                    final color = Color.lerp(Colors.blue.shade100, Colors.red.shade400, t)!;
+                    return Card(
+                      color: color,
+                      child: Center(
+                        child: Text(
+                          '$i\n${safePercent(freq[i] ?? 0, totalBalls).toStringAsFixed(1)}%',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    );
+                  })
+              ],
+            ),
+          ),
+          SizedBox(
+            height: 180,
+            child: BarChart(
+              BarChartData(
+                maxY: (draws.isEmpty) ? 0.3 : null,
+                barTouchData: BarTouchData(enabled: false),
+                titlesData: FlTitlesData(
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 18,
+                      getTitlesWidget: (v, meta) {
+                        final i = v.toInt();
+                        return i % 5 == 0 ? Text('$i') : const SizedBox.shrink();
+                      },
+                    ),
+                  ),
+                ),
+                gridData: const FlGridData(show: true),
+                barGroups: [
+                  for (int i = 1; i <= 80; i++)
+                    BarChartGroupData(
+                      x: i,
+                      barRods: [BarChartRodData(toY: probs[i].isFinite ? probs[i] : 0.0)],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          final nums = await showDialog<List<int>>(
+            context: context,
+            builder: (_) => const _AddDrawDialog(),
+          );
+          if (nums != null && nums.length == 20) {
+            _addDraw(nums);
+          }
+        },
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+}
+
+class _AddDrawDialog extends StatefulWidget {
+  const _AddDrawDialog();
+
+  @override
+  State<_AddDrawDialog> createState() => _AddDrawDialogState();
+}
+
+class _AddDrawDialogState extends State<_AddDrawDialog> {
+  final controller = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新增一筆開獎號碼（20 顆）'),
+      content: TextField(
+        controller: controller,
+        decoration: const InputDecoration(hintText: '輸入以空格或逗號分隔的 20 個號碼（1..80）'),
+        maxLines: 2,
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            final toks = controller.text
+                .replaceAll(RegExp(r'[^0-9,\\s\\t]'), ' ')
+                .split(RegExp(r'[\\s,]+'));
+            final set = <int>{};
+            for (final t in toks) {
+              if (t.isEmpty) continue;
+              final v = int.tryParse(t);
+              if (v != null && v >= 1 && v <= 80) set.add(v);
+            }
+            if (set.length != 20) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('需要 20 個 1..80 的不重複數字')),
+              );
+              return;
+            }
+            final nums = set.toList()..sort();
+            Navigator.pop(context, nums);
+          },
+          child: const Text('確定'),
+        ),
+      ],
+    );
+  }
+}
+
+class _PasteDialog extends StatefulWidget {
+  const _PasteDialog();
+  @override
+  State<_PasteDialog> createState() => _PasteDialogState();
+}
+
+class _PasteDialogState extends State<_PasteDialog> {
+  final _controller = TextEditingController();
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('貼上歷史開獎（每行 20 顆）'),
+      content: SizedBox(
+        width: 520,
+        child: TextField(
+          controller: _controller,
+          maxLines: 12,
+          decoration: const InputDecoration(
+            hintText: '每行 20 個 1..80 的數字，空白/逗號皆可。\n例如：\n1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20\n3,6,9,12,15,18,21,24,27,30,33,36,39,42,45,48,51,54,57,60',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(
+          onPressed: () {
+            final lines = const LineSplitter().convert(_controller.text);
+            final out = <List<int>>[];
+            for (final line in lines) {
+              final toks = line
+                  .replaceAll(RegExp(r'[^0-9,\\s\\t]'), ' ')
+                  .split(RegExp(r'[\\s,]+'));
+              final set = <int>{};
+              for (final t in toks) {
+                if (t.isEmpty) continue;
+                final v = int.tryParse(t);
+                if (v != null && v >= 1 && v <= 80) set.add(v);
+                if (set.length == 20) break;
+              }
+              if (set.length == 20) {
+                final nums = set.toList()..sort();
+                out.add(nums);
+              }
+            }
+            Navigator.pop(context, out);
+          },
+          child: const Text('匯入'),
+        ),
+      ],
+    );
+  }
+}
+
+void main() => runApp(const StatsApp());
