@@ -4,6 +4,10 @@ on:
   push:
     branches: [ main ]
 
+# ✅ 關鍵：讓 GITHUB_TOKEN 具有寫入權限，才能推 gh-pages
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
