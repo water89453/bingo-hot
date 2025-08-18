@@ -1,7 +1,7 @@
-// scripts/fetch_bingo.mjs  (vA2)
+// scripts/fetch_bingo.mjs  (A3)
 import fs from 'node:fs/promises';
 
-const API_BASE = 'https://api.taiwanlottery.com/TLCAPIWeB/Lottery/BingoResult';
+const API_URL = 'https://api.taiwanlottery.com/TLCAPIWeB/Lottery/BingoResult';
 
 const OPEN_DATE = process.env.OPEN_DATE?.trim() || '';
 const PAGE_SIZE = parseInt(process.env.PAGE_SIZE || '50', 10);
@@ -18,10 +18,7 @@ function toTaipeiTodayISO() {
   const d = fmt(tzNow.getDate());
   return `${y}-${m}-${d}`;
 }
-
-function dashToSlash(dateStr) {
-  return String(dateStr).replaceAll('-', '/');
-}
+const dashToSlash = (s) => String(s).replaceAll('-', '/');
 
 function splitNums(s) {
   if (!s) return [];
@@ -52,6 +49,7 @@ function normalizeItem(item) {
     superNum = Number.isInteger(arr[0]) ? arr[0] : (Number.isInteger(parseInt(superRaw, 10)) ? parseInt(superRaw, 10) : undefined);
   }
 
+  // 陣列型號碼
   if (balls.length < 20) {
     const maybeArray = item?.numbers ?? item?.nums ?? item?.winNums ?? item?.WIN_NUMS;
     if (Array.isArray(maybeArray)) {
@@ -63,30 +61,26 @@ function normalizeItem(item) {
   }
 
   if (!period || balls.length !== 20) return null;
-
   return { period, date, balls, super: Number.isInteger(superNum) ? superNum : undefined };
 }
 
+// 取清單：優先在 content 下找
 function pickListFromApi(json) {
   if (Array.isArray(json)) return json;
-  const cand = [
-    json?.data?.list,
-    json?.data?.rows,
-    json?.data?.result,
-    json?.data?.List,
-    json?.list,
-    json?.List,
-    json?.result,
-    json?.rows,
-    json?.Data?.List,
+  const j = json ?? {};
+  const c = j.content ?? j.data ?? j.Content ?? {};
+  const candidates = [
+    c?.list, c?.rows, c?.result, c?.data, c?.List, c?.bingoList, c?.items,
+    j?.list, j?.rows, j?.result, j?.List
   ];
-  for (const c of cand) {
-    if (Array.isArray(c)) return c;
+  for (const x of candidates) {
+    if (Array.isArray(x)) return x;
   }
   return [];
 }
 
-async function fetchJson(url) {
+async function fetchJsonGET(params) {
+  const url = `${API_URL}?` + new URLSearchParams(params).toString();
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'bingo-hot/1.0 (+github actions)',
@@ -95,36 +89,73 @@ async function fetchJson(url) {
     },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-  return res.json();
+  return { json: await res.json(), url, method: 'GET' };
 }
 
-async function tryFetch(openDate, pageParamKey, pageNum) {
-  const url = `${API_BASE}?openDate=${encodeURIComponent(openDate)}&${pageParamKey}=${pageNum}&pageSize=${PAGE_SIZE}`;
-  const json = await fetchJson(url);
+async function fetchJsonPOST(body) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'User-Agent': 'bingo-hot/1.0 (+github actions)',
+      'Accept': 'application/json, text/plain, */*',
+      'Content-Type': 'application/json',
+      'Referer': 'https://www.taiwanlottery.com.tw/',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  return { json: await res.json(), url: API_URL, method: 'POST' };
+}
+
+async function tryFetchOne(dateStr, dateKey, pageKey, pageNum, usePost) {
+  const base = { [dateKey]: dateStr, [pageKey]: pageNum, pageSize: PAGE_SIZE };
+  const { json, url, method } = usePost ? await fetchJsonPOST(base) : await fetchJsonGET(base);
   const list = pickListFromApi(json);
-  return { url, json, list };
+
+  return { json, list, url, method, params: base };
 }
 
-async function fetchPageSmart(openDate, pageNum) {
-  // 依序嘗試：日期格式 × 分頁 key
-  const dateCandidates = [openDate, dashToSlash(openDate)];
-  const pageKeyCandidates = ['pageNum', 'pageIndex'];
+async function fetchPageSmart(openDate, pageNum, carry) {
+  const dateFormats = [openDate, dashToSlash(openDate)];
+  const dateKeys = ['openDate', 'queryDate', 'drawDate', 'date'];
+  const pageKeys = ['pageNum', 'pageIndex', 'page'];
+  const pageNums = pageNum === 1 ? [1, 0] : [pageNum]; // 第一頁同時嘗試 1 / 0 起始
+  const methods = carry?.method ? [carry.method] : ['GET', 'POST']; // 若已知上一頁方法，沿用優先
 
-  for (const d of dateCandidates) {
-    for (const k of pageKeyCandidates) {
-      try {
-        const r = await tryFetch(d, k, pageNum);
-        if (Array.isArray(r.list) && r.list.length > 0) return { ...r, openDateTried: d, pageKey: k };
-        // 第一頁拿不到資料就輸出偵錯資訊
-        if (pageNum === 1) {
-          const topKeys = Object.keys(r.json ?? {});
-          const dataKeys = r.json?.data ? Object.keys(r.json.data) : [];
-          console.warn(`warn: empty list with openDate=${d} ${k}=${pageNum} pageSize=${PAGE_SIZE}`);
-          console.warn('warn: top-level keys =', topKeys);
-          if (dataKeys.length) console.warn('warn: data keys =', dataKeys);
+  for (const method of methods) {
+    for (const d of dateFormats) {
+      for (const dk of dateKeys) {
+        for (const pk of pageKeys) {
+          for (const pn of pageNums) {
+            try {
+              const r = await tryFetchOne(d, dk, pk, pn, method === 'POST');
+              if (Array.isArray(r.list) && r.list.length > 0) {
+                return { ...r, chosen: { openDate: d, dateKey: dk, pageKey: pk, pageNum: pn } };
+              }
+              if (pageNum === 1) {
+                const topKeys = Object.keys(r.json ?? {});
+                const contentKeys = r.json?.content ? Object.keys(r.json.content) : [];
+                console.warn(`warn: empty list with ${method} ${dk}=${d} ${pk}=${pn} pageSize=${PAGE_SIZE}`);
+                console.warn('warn: top-level keys =', topKeys);
+                if (contentKeys.length) console.warn('warn: content keys =', contentKeys);
+                const sample = Array.isArray(r.json?.content) ? r.json.content[0]
+                  : Array.isArray(r.json?.content?.list) ? r.json.content.list[0]
+                  : Array.isArray(r.json?.content?.rows) ? r.json.content.rows[0]
+                  : undefined;
+                if (sample) {
+                  const s = { ...sample };
+                  for (const k of Object.keys(s)) {
+                    const v = s[k];
+                    if (typeof v === 'string' && v.length > 160) s[k] = v.slice(0, 160) + '...';
+                  }
+                  console.warn('warn: content first item sample =', s);
+                }
+              }
+            } catch (e) {
+              if (pageNum === 1) console.warn(`warn: fetch failed (${method} ${dk}=${d} ${pk}=${pn}): ${e.message}`);
+            }
+          }
         }
-      } catch (e) {
-        if (pageNum === 1) console.warn(`warn: fetch failed (${d}, ${k}=${pageNum}): ${e.message}`);
       }
     }
   }
@@ -140,13 +171,12 @@ async function loadExisting() {
     return [];
   }
 }
-
-function sortByPeriodAsc(a, b) {
+const sortByPeriodAsc = (a, b) => {
   const na = parseInt(a.period, 10);
   const nb = parseInt(b.period, 10);
   if (Number.isNaN(na) || Number.isNaN(nb)) return String(a.period).localeCompare(String(b.period));
   return na - nb;
-}
+};
 
 async function saveMerged(rows) {
   const prev = await loadExisting();
@@ -174,21 +204,16 @@ async function main() {
 
   const collected = [];
   let page = 1;
+  let carry = null;
   let printedSample = false;
-  let openDateUsed = openDate;
-  let pageKeyUsed = 'pageNum';
 
   while (page <= MAX_PAGES) {
-    const r = await fetchPageSmart(openDateUsed, page);
+    const r = await fetchPageSmart(openDate, page, carry);
     if (!r) {
-      if (page === 1) {
-        console.warn('warn: API returned empty list on all attempts for first page.');
-      }
+      if (page === 1) console.warn('warn: API returned empty list on all attempts for first page.');
       break;
     }
-    // 更新實際使用到的參數（後續翻頁沿用）
-    openDateUsed = r.openDateTried;
-    pageKeyUsed = r.pageKey;
+    carry = { method: r.method, dateKey: r.chosen.dateKey, pageKey: r.chosen.pageKey };
 
     const list = r.list;
     if (!printedSample) {
@@ -198,7 +223,7 @@ async function main() {
         if (typeof v === 'string' && v.length > 160) sample[k] = v.slice(0, 160) + '...';
       }
       console.log('debug: first item from API:', sample);
-      console.log(`debug: using openDate="${openDateUsed}", pageKey="${pageKeyUsed}"`);
+      console.log(`debug: using method=${r.method} openDate("${r.chosen.dateKey}")="${r.chosen.openDate}", pageKey="${r.chosen.pageKey}", startPage=${r.chosen.pageNum}`);
       printedSample = true;
     }
 
@@ -216,7 +241,6 @@ async function main() {
     return;
   }
 
-  // 去重
   const uniq = Array.from(new Map(collected.map(r => [r.period, r])).values());
 
   if (!BACKFILL) {
