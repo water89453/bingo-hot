@@ -1,50 +1,82 @@
 name: fetch
 
 on:
+  # GitHub 的 cron 一律用 UTC。這裡切成兩段，涵蓋台北 07:05–23:55 的所有分鐘
   schedule:
-    - cron: "*/5 * * * *"     # 每 5 分鐘（UTC）
+    # 台北 07:05–23:59 ≈ UTC 23:05–15:59，拆兩段避免跨午夜
+    - cron: '*/1 23 * * *'     # UTC 23:00–23:59（台北 +8 → 07:00–07:59）
+    - cron: '*/1 0-15 * * *'   # UTC 00:00–15:59（台北 08:00–23:59）
   workflow_dispatch:
-    inputs:
-      backfillMinutes:
-        description: "Backfill mins (e.g. 60)"
-        required: false
-        default: "0"
 
 permissions:
   contents: write
 
 jobs:
   fetch:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install deps
+      - name: Install deps (npm ci)
         run: npm ci --no-audit --no-fund
 
-      - name: Run crawler
-        env:
-          BACKFILL_MINUTES: ${{ github.event.inputs.backfillMinutes || 0 }}
+      - name: Decide whether to run this minute (Asia/Taipei)
+        id: gate
+        shell: bash
         run: |
-          export BACKFILL_MINUTES
-          node scripts/fetch_bingo.mjs
+          # 以台北時間取現在的 HH:MM 與分鐘
+          TZ=Asia/Taipei now_hm=$(date +%H:%M)
+          TZ=Asia/Taipei hour=$(date +%H)
+          TZ=Asia/Taipei minute=$(date +%M)
 
-      - name: Show diff (debug)
-        run: |
-          git status --porcelain
-          if [ -f web/data/draws.json ]; then
-            echo "draws.json size:" $(wc -c < web/data/draws.json) "bytes"
+          # 只允許 07:05–23:55
+          in_window=false
+          if [[ "$hour$minute" > "0704" && "$hour$minute" < "2356" ]]; then
+            in_window=true
           fi
 
-      - name: Peek last 5 draws (debug)
+          # 每 5 分鐘區間的 +1、+2 分鐘才執行（例如 06、07 / 11、12 / 16、17 ...）
+          mod=$((10#$minute % 5))
+          on_edge=false
+          if [[ $mod -eq 1 || $mod -eq 2 ]]; then
+            on_edge=true
+          fi
+
+          echo "now(Taipei)=$now_hm hour=$hour minute=$minute in_window=$in_window on_edge=$on_edge"
+
+          if [[ "$in_window" == "true" && "$on_edge" == "true" ]]; then
+            echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_this_minute=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip when outside window
+        if: steps.gate.outputs.run_this_minute == 'false'
+        run: |
+          echo "👉 Skipped this minute (not in 07:05–23:55 or not at +1/+2 min of a 5-min slot)."
+          exit 0
+
+      - name: Run fetch script (today in Taipei, pageSize=50)
+        env:
+          PAGE_SIZE: '50'
+          MAX_PAGES: '20'
+        run: |
+          node scripts/fetch_bingo.mjs
+
+      - name: Show tail of draws.json (debug)
         run: |
           if command -v jq >/dev/null 2>&1; then
+            echo "Last 5 rows of web/data/draws.json:"
             tail -n +1 web/data/draws.json | jq '.[-5:]'
           else
             echo "jq not found"
