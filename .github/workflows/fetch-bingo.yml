@@ -30,24 +30,12 @@ jobs:
       - name: Run fetch script
         run: node scripts/fetch_bingo.mjs
 
-      # ⬇️ 用這段取代你現在的 Commit & push 步驟
       - name: Commit & push if changed
         run: |
-          git config user.name  "gh-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           git add web/data/draws.json
-
-          # 如果沒有變動就直接跳過
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
-          git commit -m "chore(data): 5-min bingo sync"
-
-          # 先把 origin/main 拉回來疊上去，避免 push 被拒
+          git commit -m "chore(data): 5-min bingo sync" || echo "No changes to commit"
           git pull --rebase origin main
-
-          # 再 push
           git push origin main
+
