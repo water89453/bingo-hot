@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write  # 允許寫入 repo
+  contents: write
 
 jobs:
   fetch:
@@ -16,8 +16,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0             # 取得完整歷史，才能 rebase
-          persist-credentials: true  # 用 GITHUB_TOKEN push
+          fetch-depth: 0            # 重要：拿到完整歷史，rebase 才行
+          persist-credentials: true # 讓 GITHUB_TOKEN 可 push
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -25,17 +25,34 @@ jobs:
           node-version: "20"
 
       - name: Install deps
-        run: npm i node-fetch@3 cheerio
+        run: npm i cheerio
 
       - name: Run fetch script
         run: node scripts/fetch_bingo.mjs
 
+      # 下面改成：先 fetch + rebase，再 push
       - name: Commit & push if changed
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add web/data/draws.json
-          git commit -m "chore(data): 5-min bingo sync" || echo "No changes to commit"
-          git pull --rebase origin main
-          git push origin main
+          set -e
 
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 只把我們要的檔案加入暫存
+          git add web/data/draws.json
+
+          # 若沒變動就直接跳過
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(data): 5-min bingo sync"
+
+          # 先把遠端抓下來、用 rebase 合併，避免 non-fast-forward
+          git fetch origin main
+          git rebase origin/main
+
+          # 再推回 main
+          git push origin HEAD:main
