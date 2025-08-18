@@ -51,12 +51,9 @@ class StatsHome extends StatefulWidget {
 }
 
 class _StatsHomeState extends State<StatsHome> {
-  // 狀態
   final _spKey = 'bingo_draws_v3';
   List<Draw> _draws = []; // 新的在最前（index 0）
   int sampleSize = 100;
-
-  // 讀/寫 --------------------------------------------------------------
 
   Future<String?> _readRaw() async {
     try {
@@ -96,8 +93,6 @@ class _StatsHomeState extends State<StatsHome> {
     _loadAll();
   }
 
-  // 統計 --------------------------------------------------------------
-
   Map<int, int> _countFreq() {
     final freq = <int, int>{};
     final recent = _draws.take(sampleSize);
@@ -118,8 +113,6 @@ class _StatsHomeState extends State<StatsHome> {
     return freq;
   }
 
-  // 新增 --------------------------------------------------------------
-
   void _addOne(Draw d) {
     setState(() => _draws.insert(0, d));
   }
@@ -127,8 +120,6 @@ class _StatsHomeState extends State<StatsHome> {
   void _addMany(List<Draw> list) {
     setState(() => _draws = List<Draw>.from(list)..addAll(_draws));
   }
-
-  // 小工具 ------------------------------------------------------------
 
   double _safeRatio(int count, int total) {
     if (total <= 0) return 0.0;
@@ -141,8 +132,6 @@ class _StatsHomeState extends State<StatsHome> {
     return '${p.toStringAsFixed(1)}%';
   }
 
-  // 介面 --------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     final issues = _draws.take(sampleSize).length;
@@ -150,7 +139,6 @@ class _StatsHomeState extends State<StatsHome> {
     final superFreq = _countSuperFreq();
     final totalBalls = issues * 20;
 
-    // 機率（0~1）
     final probs = List<double>.generate(
       81,
       (i) => i == 0 ? 0.0 : _safeRatio(freq[i] ?? 0, totalBalls),
@@ -209,7 +197,6 @@ class _StatsHomeState extends State<StatsHome> {
                   eol: '\n',
                 ).convert(text);
 
-                // 嘗試自動找出「獎號起始欄位」
                 int startIdx = -1;
                 if (rows.isNotEmpty) {
                   for (int c = 0; c < rows[0].length; c++) {
@@ -221,14 +208,12 @@ class _StatsHomeState extends State<StatsHome> {
                     }
                   }
                 }
-                // 若第一列不是標頭，預設從第 6 欄開始（常見格式）
                 if (startIdx == -1) startIdx = 6;
 
                 final parsed = <Draw>[];
                 for (int i = 0; i < rows.length; i++) {
                   final r = rows[i];
-                  if (r.length < startIdx + 20) continue; // 至少 20 顆
-                  // 取前 20 顆
+                  if (r.length < startIdx + 20) continue;
                   final set = <int>{};
                   for (int j = 0; j < 20; j++) {
                     final cell = (r[startIdx + j] ?? '').toString().trim();
@@ -238,7 +223,6 @@ class _StatsHomeState extends State<StatsHome> {
                   if (set.length != 20) continue;
                   final balls = set.toList()..sort();
 
-                  // 超級獎號：優先抓第 21 欄；否則用第 20 顆
                   int superBall = balls.last;
                   if (r.length > startIdx + 20) {
                     final supCell = r[startIdx + 20].toString().trim();
@@ -297,7 +281,7 @@ class _StatsHomeState extends State<StatsHome> {
         onPressed: () async {
           final d = await showDialog<Draw>(
             context: context,
-            builder: (_) => const _QuickAddDialog(),
+            builder: (_) => const _QuickAddDialog(), // ← 已改回「最後一顆當超級 + 長按可改」
           );
           if (d == null) return;
           _addOne(d);
@@ -313,7 +297,6 @@ class _StatsHomeState extends State<StatsHome> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 上方資訊 + 超級獎號 Top 晶片列（可水平捲動）
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: Column(
@@ -331,8 +314,8 @@ class _StatsHomeState extends State<StatsHome> {
                         DropdownButton<int>(
                           value: sampleSize,
                           items: const [50, 100, 200, 500]
-                              .map((e) => DropdownMenuItem(
-                                  value: e, child: Text('近 $e 期')))
+                              .map((e) =>
+                                  DropdownMenuItem(value: e, child: Text('近 $e 期')))
                               .toList(),
                           onChanged: (v) => setState(() => sampleSize = v!),
                         ),
@@ -361,11 +344,10 @@ class _StatsHomeState extends State<StatsHome> {
             ),
           ),
           const SizedBox(height: 4),
-          // 80 顆方塊
           Expanded(
             child: GridView.count(
               padding: const EdgeInsets.all(8),
-              crossAxisCount: 5, // 小螢幕比較易讀；平板可調 8
+              crossAxisCount: 5,
               childAspectRatio: 1.2,
               children: [
                 for (int i = 1; i <= 80; i++)
@@ -373,8 +355,8 @@ class _StatsHomeState extends State<StatsHome> {
                     final cnt = freq[i] ?? 0;
                     final p = probs[i];
                     final t = (maxP - minP) > 1e-9 ? (p - minP) / (maxP - minP) : 0.5;
-                    final color =
-                        Color.lerp(Colors.indigo.shade100, Colors.red.shade400, t)!;
+                    final color = Color.lerp(
+                        Colors.indigo.shade100, Colors.red.shade400, t)!;
                     final superCnt = superFreq[i] ?? 0;
                     return Card(
                       color: color.withOpacity(0.85),
@@ -388,8 +370,7 @@ class _StatsHomeState extends State<StatsHome> {
                             const SizedBox(height: 2),
                             Text('${_pct(cnt, issues)}',
                                 style: const TextStyle(fontSize: 12)),
-                            Text('(${cnt}次)',
-                                style: const TextStyle(fontSize: 11)),
+                            Text('(${cnt}次)', style: const TextStyle(fontSize: 11)),
                             if (superCnt > 0)
                               Padding(
                                 padding: const EdgeInsets.only(top: 2),
@@ -405,7 +386,6 @@ class _StatsHomeState extends State<StatsHome> {
               ],
             ),
           ),
-          // 長條圖
           SizedBox(
             height: 220,
             child: Padding(
@@ -416,7 +396,8 @@ class _StatsHomeState extends State<StatsHome> {
                   barTouchData: BarTouchData(enabled: false),
                   titlesData: FlTitlesData(
                     leftTitles: const AxisTitles(
-                      sideTitles: SideTitles(showTitles: true, reservedSize: 32),
+                      sideTitles:
+                          SideTitles(showTitles: true, reservedSize: 32),
                     ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
@@ -424,12 +405,16 @@ class _StatsHomeState extends State<StatsHome> {
                         reservedSize: 18,
                         getTitlesWidget: (v, meta) {
                           final i = v.toInt();
-                          return i % 5 == 0 ? Text('$i', style: const TextStyle(fontSize: 10)) : const SizedBox.shrink();
+                          return i % 5 == 0
+                              ? Text('$i', style: const TextStyle(fontSize: 10))
+                              : const SizedBox.shrink();
                         },
                       ),
                     ),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles:
+                        const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles:
+                        const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   ),
                   gridData: const FlGridData(show: true),
                   barGroups: [
@@ -464,7 +449,8 @@ class _StatsHomeState extends State<StatsHome> {
           child: Chip(
             visualDensity: VisualDensity.compact,
             avatar: const Icon(Icons.star, size: 14, color: Colors.amber),
-            label: Text('${e.key}（${e.value} 次）', style: const TextStyle(fontSize: 12)),
+            label: Text('${e.key}（${e.value} 次）',
+                style: const TextStyle(fontSize: 12)),
           ),
         )
     ];
@@ -473,9 +459,7 @@ class _StatsHomeState extends State<StatsHome> {
 
 // ========== Dialogs ==========
 
-/// 貼上匯入（新版）：整段中逗號/空白/換行皆為分隔，連續 20/21 顆視為一筆
-/// - 20 顆：第 20 顆當超級獎號
-/// - 21 顆：第 21 顆當超級獎號
+/// 貼上匯入（允許逗號/空白/換行；20或21顆一筆，21顆時第21顆為超級）
 class _PasteDialog extends StatefulWidget {
   const _PasteDialog();
   @override
@@ -485,11 +469,9 @@ class _PasteDialog extends StatefulWidget {
 class _PasteDialogState extends State<_PasteDialog> {
   final _controller = TextEditingController();
 
-  // 嘗試「逐行」解析；若整段都解析不到一筆，再退回「整段連續切 20/21」解析
   List<Draw> _parsePasted(String text) {
     final results = <Draw>[];
 
-    // 工具：把一串 token 轉成一筆 Draw（20 或 21 顆）
     Draw? _tokensToDraw(List<int> tokens) {
       if (tokens.length < 20) return null;
       final first20 = tokens.take(20).toList();
@@ -499,7 +481,6 @@ class _PasteDialogState extends State<_PasteDialog> {
       return Draw(balls: balls, superBall: superBall);
     }
 
-    // 1) 逐行（每行 >=20 顆就當一筆）
     final lines = const LineSplitter().convert(text);
     for (final line in lines) {
       final toks = line
@@ -519,7 +500,6 @@ class _PasteDialogState extends State<_PasteDialog> {
     }
     if (results.isNotEmpty) return results;
 
-    // 2) 退回整段切：把所有數字抓出來，依序切 21 或 20 顆
     final allToks = text
         .replaceAll(RegExp(r'[^0-9,\s]'), ' ')
         .split(RegExp(r'[\s,]+'))
@@ -531,7 +511,6 @@ class _PasteDialogState extends State<_PasteDialog> {
     }
     int i = 0;
     while (i + 20 <= allNums.length) {
-      // 若剩餘 >= 21，就優先當 21 顆（含超級）；否則取 20 顆
       final take = (i + 21 <= allNums.length) ? 21 : 20;
       final chunk = allNums.sublist(i, i + take);
       final one = _tokensToDraw(chunk);
@@ -553,11 +532,7 @@ class _PasteDialogState extends State<_PasteDialog> {
           decoration: const InputDecoration(
             hintText: '可一次貼多期：\n'
                 '・每期 20 顆（第 20 顆 = 超級）或 21 顆（第 21 顆 = 超級）\n'
-                '・逗號 / 空白 / 換行皆可作為分隔\n'
-                '例：\n'
-                '04 08 15 16 18 ... 74\n'
-                '或\n'
-                '04\n08\n15\n...\n74\n(21 顆時最後一顆為超級)',
+                '・逗號 / 空白 / 換行皆可作為分隔\n',
             border: OutlineInputBorder(),
           ),
         ),
@@ -576,7 +551,9 @@ class _PasteDialogState extends State<_PasteDialog> {
   }
 }
 
-/// 快速新增（不變）：手動勾選 20 顆，再指定超級
+/// 快速新增（回到你喜歡的版本）
+/// - 最多選 20 顆；**最後一顆被選的號碼自動成為超級獎號**
+/// - **長按**任一已選號碼，可直接把它設為超級獎號
 class _QuickAddDialog extends StatefulWidget {
   const _QuickAddDialog();
   @override
@@ -584,12 +561,35 @@ class _QuickAddDialog extends StatefulWidget {
 }
 
 class _QuickAddDialogState extends State<_QuickAddDialog> {
-  final sel = <int>{};
+  final Set<int> _selSet = <int>{};     // 快速查詢是否已選
+  final List<int> _selOrder = <int>[];  // 記錄選取順序
   int? superBall;
+
+  void _toggle(int n, bool on) {
+    setState(() {
+      if (on) {
+        if (_selSet.length >= 20) return; // 限制最多 20 顆
+        if (_selSet.add(n)) _selOrder.add(n);
+        superBall = n; // 最後一顆選的，自動當超級
+      } else {
+        if (_selSet.remove(n)) {
+          _selOrder.remove(n);
+          if (superBall == n) {
+            superBall = _selOrder.isNotEmpty ? _selOrder.last : null;
+          }
+        }
+      }
+    });
+  }
+
+  void _forceSuper(int n) {
+    if (_selSet.contains(n)) {
+      setState(() => superBall = n);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final canPickSuper = sel.length == 20;
     return AlertDialog(
       title: const Text('快速新增（20 顆 + 超級獎號）'),
       content: SizedBox(
@@ -603,41 +603,36 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
                 runSpacing: 6,
                 children: [
                   for (int i = 1; i <= 80; i++)
-                    FilterChip(
-                      label: Text('$i'),
-                      selected: sel.contains(i),
-                      onSelected: (on) {
-                        setState(() {
-                          if (on) {
-                            if (sel.length < 20) sel.add(i);
-                          } else {
-                            sel.remove(i);
-                            if (superBall == i) superBall = null;
-                          }
-                        });
-                      },
+                    GestureDetector(
+                      onLongPress: () => _forceSuper(i), // 長按直接設為超級（若已選）
+                      child: FilterChip(
+                        label: Text(
+                          _selSet.contains(i) && superBall == i ? '$i ★' : '$i',
+                        ),
+                        selected: _selSet.contains(i),
+                        onSelected: (on) => _toggle(i, on),
+                      ),
                     ),
                 ],
               ),
               const SizedBox(height: 12),
-              Text('已選：${sel.length}/20', style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 12),
-              const Text('在下列 20 顆中選擇超級獎號：'),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: -6,
-                children: [
-                  for (final n in (sel.toList()..sort()))
-                    ChoiceChip(
-                      label: Text('$n'),
-                      selected: superBall == n,
-                      onSelected: canPickSuper
-                          ? (on) => setState(() => superBall = on ? n : null)
-                          : null,
-                    ),
-                ],
-              ),
+              Text('已選：${_selSet.length}/20（長按已選號碼可改超級）',
+                  style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 8),
+              if (_selSet.isNotEmpty)
+                Wrap(
+                  spacing: 6,
+                  runSpacing: -6,
+                  children: [
+                    for (final n in (_selOrder.toList()..sort()))
+                      InputChip(
+                        label: Text(superBall == n ? '$n ★' : '$n'),
+                        selected: superBall == n,
+                        onPressed: () => _forceSuper(n),
+                        onDeleted: () => _toggle(n, false),
+                      ),
+                  ],
+                ),
             ],
           ),
         ),
@@ -646,13 +641,13 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(
           onPressed: () {
-            if (sel.length != 20 || superBall == null) {
+            if (_selSet.length != 20 || superBall == null) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('請先選滿 20 顆，再指定 1 顆超級獎號')),
+                const SnackBar(content: Text('請先選滿 20 顆，再指定 1 顆超級獎號（長按可更改）')),
               );
               return;
             }
-            final balls = sel.toList()..sort();
+            final balls = _selSet.toList()..sort();
             Navigator.pop(context, Draw(balls: balls, superBall: superBall!));
           },
           child: const Text('確定'),
@@ -710,7 +705,6 @@ class _RecommendDialogState extends State<_RecommendDialog> {
         set.add(e.key);
       }
     } else {
-      // 均衡：60% 熱 + 30% 中段 + 10% 冷
       final h = (pickCount * 0.6).round();
       final m = (pickCount * 0.3).round();
       final c = pickCount - h - m;
@@ -741,7 +735,7 @@ class _RecommendDialogState extends State<_RecommendDialog> {
   String _ratio(int count) {
     final issues = widget.issues == 0 ? 1 : widget.issues;
     return (count / issues * 100).toStringAsFixed(1) + '%';
-    }
+  }
 
   @override
   Widget build(BuildContext context) {
