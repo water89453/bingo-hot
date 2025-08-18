@@ -1,39 +1,34 @@
 name: fetch
 
 on:
-  # 每分鐘觸發一次，由步驟自行判斷是否真的要跑
-  schedule:
-    - cron: "*/1 * * * *"
-  # 手動觸發可強制執行，或指定 open_date
   workflow_dispatch:
     inputs:
       force:
-        description: "Run now (ignore time window)"
+        description: 'Run now (true/false)'
         required: false
-        default: "false"
-      open_date:
-        description: "Override OPEN_DATE (e.g. 2025-08-18)"
+        default: 'false'
+      endpoint:
+        description: 'API endpoint (e.g. /api/Draw/GetBingoAwardList)'
         required: false
-        default: ""
+        default: ''
+      date:
+        description: 'Open date YYYY-MM-DD (empty = today)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
-concurrency:
-  group: fetch-bingo
-  cancel-in-progress: false
-
 jobs:
   fetch:
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -41,12 +36,10 @@ jobs:
       - name: Install deps
         run: npm ci --no-audit --no-fund
 
-      # 只在台北時間 07:05–23:55 且分針為 01/02 或 06/07 ... 這類「邊緣」分鐘才跑；
-      # 若手動觸發且 force=true，則永遠跑。
       - name: Decide to run this minute
-        id: gate
+        id: decide
         env:
-          force: ${{ github.event.inputs.force || 'false' }}
+          force: ${{ inputs.force }}
         shell: bash
         run: |
           force="${force}"
@@ -78,19 +71,19 @@ jobs:
             echo "run_this_minute=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Fetch bingo data
-        if: steps.gate.outputs.run_this_minute == 'true'
+      - name: Run fetch script
+        if: steps.decide.outputs.run_this_minute == 'true'
         env:
-          # ★ 從 Repository Variables 讀取 API Base
-          BINGO_API_BASE: ${{ vars.BINGO_API_BASE }}
-          # 可由手動觸發帶入，留空則讓腳本自己決定（通常取今天）
-          OPEN_DATE: ${{ github.event.inputs.open_date }}
+          # 注意：這裡是正確的 Web 網域拼字
+          BINGO_API_BASE: https://api.taiwanlottery.com/TLCAPIWeb
+          OPEN_DATE: ${{ inputs.date }}
+          ENDPOINT:  ${{ inputs.endpoint }}
           PAGE_SIZE: 50
           MAX_PAGES: 20
         run: node scripts/fetch_bingo.mjs
 
-      - name: Show last 5 rows (draws.json)
-        if: always()
+      - name: Show last 5 rows
+        if: steps.decide.outputs.run_this_minute == 'true'
         shell: bash
         run: |
           if command -v jq >/dev/null 2>&1; then
@@ -99,7 +92,7 @@ jobs:
           fi
 
       - name: Commit & push if changed
-        if: steps.gate.outputs.run_this_minute == 'true'
+        if: steps.decide.outputs.run_this_minute == 'true'
         shell: bash
         run: |
           git config user.name  "github-actions[bot]"
