@@ -6,22 +6,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # 允許寫入 main 分支
-
-concurrency:
-  group: bingo-fetch
-  cancel-in-progress: false
+  contents: write
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout (full history, keep credentials)
+      - name: Checkout (keep credentials)
         uses: actions/checkout@v4
         with:
           persist-credentials: true
-          fetch-depth: 0   # 需要完整歷史做 rebase
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -29,20 +24,28 @@ jobs:
           node-version: 20
 
       - name: Install deps
-        run: npm i csv papaparse cheerio node-fetch@3
+        run: |
+          npm i puppeteer
 
       - name: Run fetch script
-        run: node scripts/fetch_bingo.mjs
+        id: runfetch
+        run: |
+          set +e
+          node scripts/fetch_bingo.mjs
+          code=$?
+          echo "exit_code=$code" >> $GITHUB_OUTPUT
+          # exit 0 代表沒有新資料；exit 10 代表有新資料；exit 1 代表失敗
+          if [ "$code" = "1" ]; then
+            exit 1
+          else
+            exit 0
+          fi
 
-      # 這個 action 會自動：
-      # 1) git pull --rebase
-      # 2) 如果 web/data/draws.json 有異動才 commit & push
-      # 3) 沒有變動 -> 正常結束（不會紅字）
       - name: Commit & push if changed
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore(data): 5-min bingo sync"
-          file_pattern: web/data/draws.json
-          commit_user_name: "gh-actions[bot]"
-          commit_user_email: "41898282+github-actions[bot]@users.noreply.github.com"
-          push_options: '--force-with-lease'
+        if: steps.runfetch.outputs.exit_code == '10'
+        run: |
+          git config user.name  "gh-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/data/draws.json
+          git commit -m "chore(data): bingo sync"
+          git push
