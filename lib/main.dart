@@ -1,19 +1,21 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:csv/csv.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:path_provider/path_provider.dart';
 
 void main() => runApp(const StatsApp());
 
+const kRemoteJsonUrl =
+    'https://water89453.github.io/bingo-hot/data/draws.json'; // 你的 Pages 路徑
+const _cacheKeyData = 'remote_draws_v1';
+const _cacheKeyTime = 'remote_draws_time_v1';
+
 class StatsApp extends StatelessWidget {
   const StatsApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -27,21 +29,39 @@ class StatsApp extends StatelessWidget {
 
 /// 一期資料：20 顆號碼 + 超級獎號（最後一顆）
 class Draw {
+  final String period;
+  final String date; // 可能是空字串
   final List<int> balls; // 20 顆（1..80，不重複、排序）
-  final int superBall;   // 1..80（通常為 balls 的最後一顆）
+  final int superBall; // 1..80
 
-  const Draw({required this.balls, required this.superBall});
+  const Draw({
+    required this.period,
+    required this.date,
+    required this.balls,
+    required this.superBall,
+  });
+
+  factory Draw.fromJson(Map<String, dynamic> json) {
+    final rawBalls = (json['balls'] as List).map((e) => int.tryParse('$e'))
+        .whereType<int>()
+        .toList();
+    final set = rawBalls.where((v) => v >= 1 && v <= 80).toSet();
+    final balls = set.toList()..sort();
+    final sup = int.tryParse('${json['super']}') ?? (balls.isNotEmpty ? balls.last : 0);
+    return Draw(
+      period: '${json['period'] ?? ''}',
+      date: '${json['date'] ?? ''}',
+      balls: balls,
+      superBall: sup.clamp(1, 80),
+    );
+  }
 
   Map<String, dynamic> toJson() => {
+        'period': period,
+        'date': date,
         'balls': balls,
         'super': superBall,
       };
-
-  factory Draw.fromJson(Map<String, dynamic> json) {
-    final b = List<int>.from(json['balls'] as List);
-    final s = json['super'] as int? ?? b.last;
-    return Draw(balls: b, superBall: s);
-  }
 }
 
 class StatsHome extends StatefulWidget {
@@ -51,47 +71,110 @@ class StatsHome extends StatefulWidget {
 }
 
 class _StatsHomeState extends State<StatsHome> {
-  final _spKey = 'bingo_draws_v3';
   List<Draw> _draws = []; // 新的在最前（index 0）
   int sampleSize = 100;
 
-  Future<String?> _readRaw() async {
-    try {
-      final sp = await SharedPreferences.getInstance();
-      return sp.getString(_spKey);
-    } catch (_) {
-      return null;
-    }
-  }
+  bool _loading = false;
+  String? _error;
+  DateTime? _lastSync;
 
-  Future<void> _writeRaw(String content) async {
-    try {
-      final sp = await SharedPreferences.getInstance();
-      await sp.setString(_spKey, content);
-    } catch (_) {}
-  }
+  Timer? _autoTimer; // 可選：定時重新抓
 
-  Future<void> _saveAll() async {
-    final data = _draws.map((e) => e.toJson()).toList();
-    await _writeRaw(jsonEncode(data));
-  }
-
-  Future<void> _loadAll() async {
-    try {
-      final raw = await _readRaw();
-      if (raw == null) return;
-      final list = (jsonDecode(raw) as List)
-          .map((e) => Draw.fromJson(Map<String, dynamic>.from(e)))
-          .toList();
-      setState(() => _draws = list);
-    } catch (_) {}
-  }
+  // ------------------ init / dispose ------------------
 
   @override
   void initState() {
     super.initState();
-    _loadAll();
+    _loadCache().then((_) => _fetchRemote(showSnackbar: false));
+    // 如果想要定時自動更新（例如每 2 分鐘檢查一次）
+    _autoTimer = Timer.periodic(const Duration(minutes: 2), (_) {
+      _fetchRemote(showSnackbar: false);
+    });
   }
+
+  @override
+  void dispose() {
+    _autoTimer?.cancel();
+    super.dispose();
+  }
+
+  // ------------------ Cache ------------------
+
+  Future<void> _loadCache() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final raw = sp.getString(_cacheKeyData);
+      final ts = sp.getInt(_cacheKeyTime);
+      if (raw != null) {
+        final list = (jsonDecode(raw) as List)
+            .map((e) => Draw.fromJson(Map<String, dynamic>.from(e)))
+            .toList();
+        setState(() {
+          _draws = list;
+          _lastSync = ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveCache(List<Draw> draws) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(
+          _cacheKeyData, jsonEncode(draws.map((e) => e.toJson()).toList()));
+      await sp.setInt(_cacheKeyTime, DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  // ------------------ Network ------------------
+
+  Future<void> _fetchRemote({bool showSnackbar = true}) async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      // 加上 cache buster，避免瀏覽器快取
+      final uri = Uri.parse('$kRemoteJsonUrl?t=${DateTime.now().millisecondsSinceEpoch}');
+      final resp = await http.get(uri).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) {
+        throw Exception('HTTP ${resp.statusCode}');
+      }
+      final body = resp.body.trim();
+      final list = (jsonDecode(body) as List)
+          .map((e) => Draw.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+
+      // 依照期別排序（如果遠端已經是新到舊可省略）
+      list.sort((a, b) => b.period.compareTo(a.period));
+
+      setState(() {
+        _draws = list;
+        _lastSync = DateTime.now();
+      });
+      await _saveCache(list);
+
+      if (showSnackbar && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已更新：${list.length} 期')),
+        );
+      }
+    } catch (e) {
+      // 失敗時保留快取
+      setState(() => _error = '更新失敗：$e');
+      if (showSnackbar && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('更新失敗，使用快取中：$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ------------------ 統計 ------------------
 
   Map<int, int> _countFreq() {
     final freq = <int, int>{};
@@ -113,14 +196,6 @@ class _StatsHomeState extends State<StatsHome> {
     return freq;
   }
 
-  void _addOne(Draw d) {
-    setState(() => _draws.insert(0, d));
-  }
-
-  void _addMany(List<Draw> list) {
-    setState(() => _draws = List<Draw>.from(list)..addAll(_draws));
-  }
-
   double _safeRatio(int count, int total) {
     if (total <= 0) return 0.0;
     final v = count / total;
@@ -132,6 +207,8 @@ class _StatsHomeState extends State<StatsHome> {
     return '${p.toStringAsFixed(1)}%';
   }
 
+  // ------------------ UI ------------------
+
   @override
   Widget build(BuildContext context) {
     final issues = _draws.take(sampleSize).length;
@@ -139,6 +216,7 @@ class _StatsHomeState extends State<StatsHome> {
     final superFreq = _countSuperFreq();
     final totalBalls = issues * 20;
 
+    // 機率（0~1）
     final probs = List<double>.generate(
       81,
       (i) => i == 0 ? 0.0 : _safeRatio(freq[i] ?? 0, totalBalls),
@@ -151,119 +229,28 @@ class _StatsHomeState extends State<StatsHome> {
       appBar: AppBar(
         title: const Text('Bingo 歷史熱度（近 N 期）'),
         actions: [
-          // 文字貼上匯入（允許逗號、空白、換行）
+          if (_lastSync != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Text(
+                  '更新：${_fmtTime(_lastSync!)}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
           IconButton(
-            tooltip: '貼上匯入（支援逗號/空白/換行）',
-            icon: const Icon(Icons.content_paste_go),
-            onPressed: () async {
-              final rows = await showDialog<List<Draw>>(
-                context: context,
-                builder: (_) => const _PasteDialog(),
-              );
-              if (rows != null && rows.isNotEmpty) {
-                _addMany(rows);
-                await _saveAll();
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('貼上匯入完成：${rows.length} 筆')),
-                );
-              }
-            },
+            tooltip: '重新整理',
+            icon: _loading
+                ? const SizedBox(
+                    width: 20, height: 20, child: CircularProgressIndicator())
+                : const Icon(Icons.refresh),
+            onPressed: _loading ? null : () => _fetchRemote(),
           ),
-          // 匯入 CSV
-          IconButton(
-            tooltip: '匯入 CSV',
-            icon: const Icon(Icons.table_view),
-            onPressed: () async {
-              try {
-                final picked = await FilePicker.platform.pickFiles(
-                  type: FileType.custom,
-                  allowedExtensions: ['csv', 'txt'],
-                  allowMultiple: false,
-                  withData: kIsWeb,
-                );
-                if (picked == null) return;
-                String text;
-                if (kIsWeb) {
-                  final bytes = picked.files.single.bytes!;
-                  text = utf8.decode(bytes, allowMalformed: true);
-                } else {
-                  final path = picked.files.single.path!;
-                  text = await File(path).readAsString();
-                }
-
-                final rows = const CsvToListConverter(
-                  shouldParseNumbers: false,
-                  eol: '\n',
-                ).convert(text);
-
-                int startIdx = -1;
-                if (rows.isNotEmpty) {
-                  for (int c = 0; c < rows[0].length; c++) {
-                    final hdr = rows[0][c]?.toString() ?? '';
-                    final h = hdr.replaceAll(' ', '');
-                    if (RegExp(r'^(獎號?1|第?1顆|1)$').hasMatch(h)) {
-                      startIdx = c;
-                      break;
-                    }
-                  }
-                }
-                if (startIdx == -1) startIdx = 6;
-
-                final parsed = <Draw>[];
-                for (int i = 0; i < rows.length; i++) {
-                  final r = rows[i];
-                  if (r.length < startIdx + 20) continue;
-                  final set = <int>{};
-                  for (int j = 0; j < 20; j++) {
-                    final cell = (r[startIdx + j] ?? '').toString().trim();
-                    final v = int.tryParse(cell);
-                    if (v != null && v >= 1 && v <= 80) set.add(v);
-                  }
-                  if (set.length != 20) continue;
-                  final balls = set.toList()..sort();
-
-                  int superBall = balls.last;
-                  if (r.length > startIdx + 20) {
-                    final supCell = r[startIdx + 20].toString().trim();
-                    final sup = int.tryParse(supCell);
-                    if (sup != null && sup >= 1 && sup <= 80) {
-                      superBall = sup;
-                    }
-                  }
-                  parsed.add(Draw(balls: balls, superBall: superBall));
-                }
-
-                if (parsed.isEmpty) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('CSV 內容無法解析到有效資料')),
-                  );
-                  return;
-                }
-
-                _addMany(parsed);
-                await _saveAll();
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('CSV 匯入完成：${parsed.length} 筆')),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('匯入失敗：$e')),
-                );
-              }
-            },
-          ),
-          // 推薦
           IconButton(
             tooltip: '推薦號碼',
             icon: const Icon(Icons.auto_awesome),
             onPressed: () {
-              final issues = _draws.take(sampleSize).length;
-              final freq = _countFreq();
-              final superFreq = _countSuperFreq();
               showDialog(
                 context: context,
                 builder: (_) => _RecommendDialog(
@@ -277,26 +264,10 @@ class _StatsHomeState extends State<StatsHome> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final d = await showDialog<Draw>(
-            context: context,
-            builder: (_) => const _QuickAddDialog(), // ← 已改回「最後一顆當超級 + 長按可改」
-          );
-          if (d == null) return;
-          _addOne(d);
-          await _saveAll();
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已新增 1 筆')),
-          );
-        },
-        label: const Text('新增'),
-        icon: const Icon(Icons.add),
-      ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 上方資訊 + 超級獎號 Top 晶片列（可水平捲動）
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: Column(
@@ -314,10 +285,10 @@ class _StatsHomeState extends State<StatsHome> {
                         DropdownButton<int>(
                           value: sampleSize,
                           items: const [50, 100, 200, 500]
-                              .map((e) =>
-                                  DropdownMenuItem(value: e, child: Text('近 $e 期')))
+                              .map((e) => DropdownMenuItem(
+                                  value: e, child: Text('近 $e 期')))
                               .toList(),
-                          onChanged: (v) => setState(() => sampleSize = v!),
+                          onChanged: (v) => setState(() => sampleSize = v ?? 100),
                         ),
                       ],
                     ),
@@ -325,6 +296,8 @@ class _StatsHomeState extends State<StatsHome> {
                       '樣本：$issues 期（理論單號約 25%）',
                       style: const TextStyle(fontSize: 12),
                     ),
+                    if (_error != null)
+                      Text('$_error', style: const TextStyle(fontSize: 12, color: Colors.red)),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -344,17 +317,19 @@ class _StatsHomeState extends State<StatsHome> {
             ),
           ),
           const SizedBox(height: 4),
+          // 80 顆方塊
           Expanded(
             child: GridView.count(
               padding: const EdgeInsets.all(8),
-              crossAxisCount: 5,
+              crossAxisCount: 5, // 手機較易讀；平板可調 8
               childAspectRatio: 1.2,
               children: [
                 for (int i = 1; i <= 80; i++)
                   Builder(builder: (_) {
                     final cnt = freq[i] ?? 0;
                     final p = probs[i];
-                    final t = (maxP - minP) > 1e-9 ? (p - minP) / (maxP - minP) : 0.5;
+                    final t =
+                        (maxP - minP) > 1e-9 ? (p - minP) / (maxP - minP) : 0.5;
                     final color = Color.lerp(
                         Colors.indigo.shade100, Colors.red.shade400, t)!;
                     final superCnt = superFreq[i] ?? 0;
@@ -370,7 +345,8 @@ class _StatsHomeState extends State<StatsHome> {
                             const SizedBox(height: 2),
                             Text('${_pct(cnt, issues)}',
                                 style: const TextStyle(fontSize: 12)),
-                            Text('(${cnt}次)', style: const TextStyle(fontSize: 11)),
+                            Text('(${cnt}次)',
+                                style: const TextStyle(fontSize: 11)),
                             if (superCnt > 0)
                               Padding(
                                 padding: const EdgeInsets.only(top: 2),
@@ -386,6 +362,7 @@ class _StatsHomeState extends State<StatsHome> {
               ],
             ),
           ),
+          // 長條圖
           SizedBox(
             height: 220,
             child: Padding(
@@ -396,8 +373,7 @@ class _StatsHomeState extends State<StatsHome> {
                   barTouchData: BarTouchData(enabled: false),
                   titlesData: FlTitlesData(
                     leftTitles: const AxisTitles(
-                      sideTitles:
-                          SideTitles(showTitles: true, reservedSize: 32),
+                      sideTitles: SideTitles(showTitles: true, reservedSize: 32),
                     ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
@@ -449,215 +425,21 @@ class _StatsHomeState extends State<StatsHome> {
           child: Chip(
             visualDensity: VisualDensity.compact,
             avatar: const Icon(Icons.star, size: 14, color: Colors.amber),
-            label: Text('${e.key}（${e.value} 次）',
-                style: const TextStyle(fontSize: 12)),
+            label:
+                Text('${e.key}（${e.value} 次）', style: const TextStyle(fontSize: 12)),
           ),
         )
     ];
   }
-}
 
-// ========== Dialogs ==========
-
-/// 貼上匯入（允許逗號/空白/換行；20或21顆一筆，21顆時第21顆為超級）
-class _PasteDialog extends StatefulWidget {
-  const _PasteDialog();
-  @override
-  State<_PasteDialog> createState() => _PasteDialogState();
-}
-
-class _PasteDialogState extends State<_PasteDialog> {
-  final _controller = TextEditingController();
-
-  List<Draw> _parsePasted(String text) {
-    final results = <Draw>[];
-
-    Draw? _tokensToDraw(List<int> tokens) {
-      if (tokens.length < 20) return null;
-      final first20 = tokens.take(20).toList();
-      if (first20.toSet().length != 20) return null;
-      final superBall = (tokens.length >= 21) ? tokens[20] : first20.last;
-      final balls = first20..sort();
-      return Draw(balls: balls, superBall: superBall);
-    }
-
-    final lines = const LineSplitter().convert(text);
-    for (final line in lines) {
-      final toks = line
-          .replaceAll(RegExp(r'[^0-9,\s]'), ' ')
-          .split(RegExp(r'[\s,]+'))
-        ..removeWhere((t) => t.isEmpty);
-      final nums = <int>[];
-      for (final t in toks) {
-        final v = int.tryParse(t);
-        if (v != null && v >= 1 && v <= 80) {
-          nums.add(v);
-          if (nums.length >= 21) break;
-        }
-      }
-      final one = _tokensToDraw(nums);
-      if (one != null) results.add(one);
-    }
-    if (results.isNotEmpty) return results;
-
-    final allToks = text
-        .replaceAll(RegExp(r'[^0-9,\s]'), ' ')
-        .split(RegExp(r'[\s,]+'))
-      ..removeWhere((t) => t.isEmpty);
-    final allNums = <int>[];
-    for (final t in allToks) {
-      final v = int.tryParse(t);
-      if (v != null && v >= 1 && v <= 80) allNums.add(v);
-    }
-    int i = 0;
-    while (i + 20 <= allNums.length) {
-      final take = (i + 21 <= allNums.length) ? 21 : 20;
-      final chunk = allNums.sublist(i, i + take);
-      final one = _tokensToDraw(chunk);
-      if (one != null) results.add(one);
-      i += take;
-    }
-    return results;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('貼上歷史開獎（逗號/空白/換行皆可）'),
-      content: SizedBox(
-        width: 520,
-        child: TextField(
-          controller: _controller,
-          maxLines: 12,
-          decoration: const InputDecoration(
-            hintText: '可一次貼多期：\n'
-                '・每期 20 顆（第 20 顆 = 超級）或 21 顆（第 21 顆 = 超級）\n'
-                '・逗號 / 空白 / 換行皆可作為分隔\n',
-            border: OutlineInputBorder(),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        FilledButton(
-          onPressed: () {
-            final out = _parsePasted(_controller.text);
-            Navigator.pop(context, out);
-          },
-          child: const Text('匯入'),
-        ),
-      ],
-    );
+  String _fmtTime(DateTime t) {
+    String two(int x) => x.toString().padLeft(2, '0');
+    return '${two(t.hour)}:${two(t.minute)}:${two(t.second)}';
   }
 }
 
-/// 快速新增（回到你喜歡的版本）
-/// - 最多選 20 顆；**最後一顆被選的號碼自動成為超級獎號**
-/// - **長按**任一已選號碼，可直接把它設為超級獎號
-class _QuickAddDialog extends StatefulWidget {
-  const _QuickAddDialog();
-  @override
-  State<_QuickAddDialog> createState() => _QuickAddDialogState();
-}
+// ========== 推薦 Dialog ==========
 
-class _QuickAddDialogState extends State<_QuickAddDialog> {
-  final Set<int> _selSet = <int>{};     // 快速查詢是否已選
-  final List<int> _selOrder = <int>[];  // 記錄選取順序
-  int? superBall;
-
-  void _toggle(int n, bool on) {
-    setState(() {
-      if (on) {
-        if (_selSet.length >= 20) return; // 限制最多 20 顆
-        if (_selSet.add(n)) _selOrder.add(n);
-        superBall = n; // 最後一顆選的，自動當超級
-      } else {
-        if (_selSet.remove(n)) {
-          _selOrder.remove(n);
-          if (superBall == n) {
-            superBall = _selOrder.isNotEmpty ? _selOrder.last : null;
-          }
-        }
-      }
-    });
-  }
-
-  void _forceSuper(int n) {
-    if (_selSet.contains(n)) {
-      setState(() => superBall = n);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('快速新增（20 顆 + 超級獎號）'),
-      content: SizedBox(
-        width: 520,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (int i = 1; i <= 80; i++)
-                    GestureDetector(
-                      onLongPress: () => _forceSuper(i), // 長按直接設為超級（若已選）
-                      child: FilterChip(
-                        label: Text(
-                          _selSet.contains(i) && superBall == i ? '$i ★' : '$i',
-                        ),
-                        selected: _selSet.contains(i),
-                        onSelected: (on) => _toggle(i, on),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text('已選：${_selSet.length}/20（長按已選號碼可改超級）',
-                  style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 8),
-              if (_selSet.isNotEmpty)
-                Wrap(
-                  spacing: 6,
-                  runSpacing: -6,
-                  children: [
-                    for (final n in (_selOrder.toList()..sort()))
-                      InputChip(
-                        label: Text(superBall == n ? '$n ★' : '$n'),
-                        selected: superBall == n,
-                        onPressed: () => _forceSuper(n),
-                        onDeleted: () => _toggle(n, false),
-                      ),
-                  ],
-                ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
-        FilledButton(
-          onPressed: () {
-            if (_selSet.length != 20 || superBall == null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('請先選滿 20 顆，再指定 1 顆超級獎號（長按可更改）')),
-              );
-              return;
-            }
-            final balls = _selSet.toList()..sort();
-            Navigator.pop(context, Draw(balls: balls, superBall: superBall!));
-          },
-          child: const Text('確定'),
-        ),
-      ],
-    );
-  }
-}
-
-/// 推薦 Dialog：依目前視窗（近 N 期）給建議
 class _RecommendDialog extends StatefulWidget {
   final int issues;
   final int sampleSize;
@@ -705,6 +487,7 @@ class _RecommendDialogState extends State<_RecommendDialog> {
         set.add(e.key);
       }
     } else {
+      // 均衡：60% 熱 + 30% 中段 + 10% 冷
       final h = (pickCount * 0.6).round();
       final m = (pickCount * 0.3).round();
       final c = pickCount - h - m;
