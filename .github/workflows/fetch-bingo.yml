@@ -1,49 +1,53 @@
-name: Fetch Bingo (every 5 min)
+name: Fetch Bingo (every 5 minutes)
 
 on:
-  workflow_dispatch: {}       # 允許你手動按「Run workflow」
   schedule:
-    - cron: "*/5 * * * *"     # 每 5 分鐘（UTC，等於台灣時間每 5 分鐘）
+    - cron: "*/5 * * * *"   # 每 5 分鐘
+  workflow_dispatch:
 
 permissions:
-  contents: write             # 允許推回 repo
-  actions: read
-
-concurrency:
-  group: fetch-bingo
-  cancel-in-progress: true
+  contents: write  # 允許寫入 repo
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          persist-credentials: true
+          fetch-depth: 0             # 取得完整歷史，才能 rebase
+          persist-credentials: true  # 用 GITHUB_TOKEN push
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
 
-      - name: Install deps for script
-        run: |
-          cd scripts
-          npm init -y > /dev/null 2>&1
-          npm i node-fetch@3 cheerio@1 --silent
+      - name: Install deps
+        run: npm i node-fetch@3 cheerio
 
-      - name: Run crawler
+      - name: Run fetch script
         run: node scripts/fetch_bingo.mjs
 
+      # ⬇️ 用這段取代你現在的 Commit & push 步驟
       - name: Commit & push if changed
         run: |
-          if ! git diff --quiet web/data/draws.json; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add web/data/draws.json
-            git commit -m "chore(data): auto update draws.json [skip ci]"
-            git push
-          else
-            echo "No changes."
+          git config user.name  "gh-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add web/data/draws.json
+
+          # 如果沒有變動就直接跳過
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
           fi
+
+          git commit -m "chore(data): 5-min bingo sync"
+
+          # 先把 origin/main 拉回來疊上去，避免 push 被拒
+          git pull --rebase origin main
+
+          # 再 push
+          git push origin main
