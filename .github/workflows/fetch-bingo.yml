@@ -1,37 +1,48 @@
-name: Fetch Bingo (every 5 minutes)
+name: Fetch Bingo (every 5 min)
 
 on:
+  workflow_dispatch: {}       # 允許你手動按「Run workflow」
   schedule:
-    - cron: '*/5 * * * *'   # 每 5 分鐘
-  workflow_dispatch:
+    - cron: "*/5 * * * *"     # 每 5 分鐘（UTC，等於台灣時間每 5 分鐘）
+
+permissions:
+  contents: write             # 允許推回 repo
+  actions: read
+
+concurrency:
+  group: fetch-bingo
+  cancel-in-progress: true
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
 
-      - name: Install deps
-        run: npm i axios cheerio
+      - name: Install deps for script
+        run: |
+          cd scripts
+          npm init -y > /dev/null 2>&1
+          npm i node-fetch@3 cheerio@1 --silent
 
-      - name: Run fetch script
+      - name: Run crawler
         run: node scripts/fetch_bingo.mjs
 
       - name: Commit & push if changed
         run: |
-          git config user.name  "gh-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [ -n "$(git status --porcelain)" ]; then
+          if ! git diff --quiet web/data/draws.json; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add web/data/draws.json
-            git commit -m "chore(data): 5-min bingo sync"
+            git commit -m "chore(data): auto update draws.json [skip ci]"
             git push
           else
             echo "No changes."

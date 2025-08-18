@@ -1,107 +1,111 @@
 // scripts/fetch_bingo.mjs
-import fs from 'fs/promises';
+import fs from 'fs';
 import path from 'path';
-import axios from 'axios';
+import process from 'process';
+import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 
-const DATA_PATH = path.join(process.cwd(), 'web', 'data', 'draws.json');
+const MAX_KEEP = 2000; // 保留最多幾期
+const OUTFILE = path.join('web', 'data', 'draws.json');
 
-// 標準化資料
-function normalizeDraw(d) {
-  const set = new Set(d.balls.map(n => Number(n)));
-  const balls = Array.from(set).sort((a, b) => a - b);
-  return {
-    period: String(d.period),
-    date: d.date || '',
-    balls,
-    super: Number(d.super ?? balls[balls.length - 1]),
-  };
+// 官網列表頁（最近期）
+const URL = 'https://www.taiwanlottery.com/lotto/result/bingo_bingo/';
+
+function normalizeNums(arr) {
+  // 轉數字、去重、排序
+  const set = new Set(
+    arr.map(x => parseInt(String(x).trim(), 10))
+       .filter(n => Number.isInteger(n) && n >= 1 && n <= 80)
+  );
+  return Array.from(set).sort((a,b)=>a-b);
 }
 
-async function readLocal() {
-  try {
-    const raw = await fs.readFile(DATA_PATH, 'utf8');
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-async function writeLocal(list) {
-  const dir = path.dirname(DATA_PATH);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(DATA_PATH, JSON.stringify(list, null, 2), 'utf8');
-}
-
-// 來源 1：pilio（主要）
-async function fetchFromPilio(limit = 200) {
-  const url = 'https://www.pilio.idv.tw/bingo/list.asp';
-  const { data: html } = await axios.get(url, { timeout: 15000 });
+function parseFromHtml(html) {
   const $ = cheerio.load(html);
-  const text = $('body').text().replace(/\s+/g, ' ').trim();
 
-  // 例：期別: 114046565 ... 10, 13, ... , 80 超級獎號:80
-  const re = /期別:\s*(\d{9})[\s\S]*?((?:\d{1,2}\s*,\s*){19}\d{1,2})[\s\S]*?超級獎號:\s*(\d{1,2})/g;
-  const out = [];
-  let m;
-  while ((m = re.exec(text)) && out.length < limit) {
-    const period = m[1];
-    const nums = m[2].split(',').map(s => Number(s.trim()));
-    const sup = Number(m[3]);
-    if (nums.length === 20 && nums.every(n => n >= 1 && n <= 80)) {
-      out.push(normalizeDraw({ period, balls: nums, super: sup }));
+  // 這裡盡量「寬鬆」去抓：找每一筆開獎容器內出現的數字
+  // 1) 先找每一期的容器（常見會有日期/期別 + 20 顆 + 超級）
+  // 2) 再把裡面所有「01~80」的號碼取出
+  // 你可以依實際 DOM 結構把選擇器換更精準，例如：$('.bb-result .numbers') 之類
+  const results = [];
+  $('.container, .content, body') // 兜底地往大容器掃
+    .find('*')
+    .each((_, el) => {
+      const text = $(el).text();
+      // 快速檢測：此區塊同時要含有 20~21 個 1..80 之間的數字
+      const nums = (text.match(/\d{1,2}/g) || [])
+        .map(s => parseInt(s, 10))
+        .filter(n => n >= 1 && n <= 80);
+
+      // 先寬鬆判定：>= 20 顆就當成一筆候選
+      if (nums.length >= 20) {
+        const balls = normalizeNums(nums.slice(0, 20));
+        if (balls.length === 20) {
+          // 嘗試找第 21 顆超級獎號（若不存在就用最後一顆）
+          const superBall = (nums[20] && nums[20] >=1 && nums[20] <=80)
+            ? nums[20]
+            : balls[balls.length - 1];
+          results.push({ balls, super: superBall });
+        }
+      }
+    });
+
+  // 去重、只留前幾筆（通常最上面幾筆是最新的）
+  const dedup = [];
+  const seen = new Set();
+  for (const d of results) {
+    const key = `${d.balls.join('-')}|${d.super}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      dedup.push(d);
     }
   }
-  return out;
-}
-
-// 來源 2：auzonet（備援）
-async function fetchFromAuzonet(limit = 200) {
-  const url = 'https://lotto.auzonet.com/bingobingoV1.php';
-  const { data: html } = await axios.get(url, { timeout: 15000 });
-  const $ = cheerio.load(html);
-  const text = $('body').text().replace(/\s+/g, ' ').trim();
-
-  // 行內：114046582 14:55 01 14 21 ...（取 20 顆，最後一顆當超級）
-  const re = /(\d{9}).{0,30}?((?:\d{1,2}\s+){19}\d{1,2})/g;
-  const out = [];
-  let m;
-  while ((m = re.exec(text)) && out.length < limit) {
-    const period = m[1];
-    const toks = m[2].trim().split(/\s+/).map(n => Number(n));
-    if (toks.length === 20 && toks.every(n => n >= 1 && n <= 80)) {
-      const sup = toks[toks.length - 1];
-      out.push(normalizeDraw({ period, balls: toks, super: sup }));
-    }
-  }
-  return out;
-}
-
-function mergeDedup(oldList, newList) {
-  const map = new Map(oldList.map(d => [d.period, d]));
-  for (const d of newList) map.set(d.period, d);
-  return Array.from(map.values()).sort((a, b) => Number(b.period) - Number(a.period));
+  // 這個頁面一般只有幾十筆以內；回傳前 200 筆就好
+  return dedup.slice(0, 200);
 }
 
 async function main() {
-  const local = await readLocal();
+  console.log('Fetching:', URL);
+  const res = await fetch(URL, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (GitHub Actions fetch script)',
+      'Accept': 'text/html,application/xhtml+xml',
+    }
+  });
 
-  // 每 5 分鐘抓即時，先主要，失敗再備援
-  let live = [];
-  try {
-    live = await fetchFromPilio(200);
-  } catch (e) {
-    console.warn('pilio 來源失敗，改抓備援：', e.message);
-    live = await fetchFromAuzonet(200);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${res.statusText}`);
   }
 
-  const merged = mergeDedup(local, live);
-  const trimmed = merged.slice(0, 100000); // 保留最多 10 萬筆
-  await writeLocal(trimmed);
-  console.log(`寫入完成：共 ${trimmed.length} 筆（新增 ${merged.length - local.length}）`);
+  const html = await res.text();
+  const parsed = parseFromHtml(html);
+
+  if (parsed.length === 0) {
+    console.log('Parser found 0 records. Site may have changed. Abort.');
+    process.exit(1);
+  }
+  console.log(`Parsed ${parsed.length} records from page.`);
+
+  // 讀舊檔
+  let old = [];
+  try {
+    old = JSON.parse(fs.readFileSync(OUTFILE, 'utf-8'));
+  } catch { old = []; }
+
+  // 合併去重（新資料放前面）
+  const map = new Map();
+  const pushOne = (d) => map.set(`${d.balls.join('-')}|${d.super}`, d);
+  for (const d of parsed) pushOne(d);
+  for (const d of old)    pushOne(d);
+
+  const merged = Array.from(map.values()).slice(0, MAX_KEEP);
+
+  fs.mkdirSync(path.dirname(OUTFILE), { recursive: true });
+  fs.writeFileSync(OUTFILE, JSON.stringify(merged, null, 0));
+  console.log(`Wrote ${merged.length} records -> ${OUTFILE}`);
 }
 
-main().catch(e => {
-  console.error(e);
+main().catch(err => {
+  console.error('ERROR:', err);
   process.exit(1);
 });
