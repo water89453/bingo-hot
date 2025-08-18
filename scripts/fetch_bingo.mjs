@@ -1,424 +1,207 @@
-#!/usr/bin/env node
-// scripts/fetch_bingo.mjs
-// Node 20+ (有全域 fetch)
-
-import fs from 'node:fs';
+/* eslint-disable no-console */
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 
-// -----------------------------------------------------------------------------
-// 設定
-// -----------------------------------------------------------------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const OPEN_DATE = process.env.OPEN_DATE || tzDate('Asia/Taipei'); // e.g. 2025-08-18
-const PAGE_SIZE = toInt(process.env.PAGE_SIZE, 50);
-const MAX_PAGES = toInt(process.env.MAX_PAGES, 20);
+const BASE = (process.env.BINGO_API_BASE || '').replace(/\/+$/, ''); // 去尾斜線
+const OPEN_DATE = process.env.OPEN_DATE || new Date().toISOString().slice(0, 10);
+const PAGE_SIZE = Number(process.env.PAGE_SIZE || 50);
+const MAX_PAGES = Number(process.env.MAX_PAGES || 20);
 
-// API base 與端點：
-// - 你現有環境若已在程式內寫死，就保留這裡預設即可。
-// - 也可以透過環境變數覆蓋：BINGO_API_BASE, BINGO_ENDPOINTS (逗號分隔)
-const BASE_URL = (process.env.BINGO_API_BASE || '').trim().replace(/\/+$/, '');
-const ENDPOINTS = ((process.env.BINGO_ENDPOINTS || '').trim() || '/BINGO/bingoQuery')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+const DATA_FILE = path.join(__dirname, '..', 'web', 'data', 'draws.json');
 
-// 若你的舊程式裡原本就內建某些端點，建議併在這裡：
-const FALLBACK_ENDPOINTS = [
-  '/BINGO/bingoQuery',           // 看到 content.bingoQueryResult，合理預設
-  '/bingo/query',
-  '/api/bingo/query',
-  '/api/bingo'
-];
-
-const CANDIDATE_ENDPOINTS = uniq([...ENDPOINTS, ...FALLBACK_ENDPOINTS]);
-
-const DATE_KEYS = ['openDate', 'queryDate', 'drawDate', 'date'];
-const PAGE_KEYS = ['pageNum', 'pageIndex', 'page'];
-
-// 輸出檔案
-const OUTPUT_FILE = path.resolve(__dirname, '..', 'web', 'data', 'draws.json');
-
-// -----------------------------------------------------------------------------
-// 主程式
-// -----------------------------------------------------------------------------
-async function main() {
-  console.log(`info: openDate=${OPEN_DATE} pageSize=${PAGE_SIZE} maxPages=${MAX_PAGES} backfill=true`);
-
-  const firstPage = await fetchPageSmart(OPEN_DATE, 1);
-  if (!firstPage || !Array.isArray(firstPage.list) || firstPage.list.length === 0) {
-    console.warn('warn: API returned empty list on all attempts for first page.');
-    console.warn('warn: API returned no parseable rows, skip write.');
-    return;
-  }
-
-  // 把第一頁的選項固化，後面翻頁沿用（dateKey/pageKey/endpoint/dateFormat）
-  const chosen = firstPage.chosen;
-  const totalSize = safeGet(firstPage.json, ['content', 'totalSize']);
-  if (totalSize != null) {
-    console.log(`debug: totalSize=${totalSize} list.length=${firstPage.list.length}`);
-  }
-
-  const allRows = [...firstPage.list];
-
-  // 從第 2 頁開始抓
-  const pagesToTry = Math.max(
-    2,
-    Math.min(
-      MAX_PAGES,
-      // 若有 totalSize，用它估算頁數；否則就用 MAX_PAGES
-      totalSize ? Math.ceil(Number(totalSize) / PAGE_SIZE) : MAX_PAGES
-    )
-  );
-
-  for (let p = 2; p <= pagesToTry; p++) {
-    const res = await fetchPageWithChosen(OPEN_DATE, p, chosen);
-    if (!res || !Array.isArray(res.list)) break;
-    if (res.list.length === 0) break;
-    allRows.push(...res.list);
-  }
-
-  // 標準化
-  const normalized = [];
-  for (const item of allRows) {
-    const n = normalizeItem(item);
-    if (n) normalized.push(n);
-  }
-
-  if (normalized.length === 0) {
-    console.warn('warn: parsed 0 normalized rows, skip write.');
-    return;
-  }
-
-  // 讀舊檔 merge
-  const before = readJsonArraySafe(OUTPUT_FILE);
-  const merged = mergeByPeriod(before, normalized);
-
-  // 排序（依 period 由小到大；若需要你可依日期）
-  merged.sort((a, b) => {
-    // period 多為字串數字
-    const pa = toInt(a.period, 0);
-    const pb = toInt(b.period, 0);
-    return pa - pb;
-  });
-
-  // 寫回
-  ensureDir(path.dirname(OUTPUT_FILE));
-  fs.writeFileSync(OUTPUT_FILE, JSON.stringify(merged, null, 2), 'utf8');
-
-  console.log(`info: wrote ${normalized.length} new rows, total=${merged.length} -> ${relPath(OUTPUT_FILE)}`);
-  // 顯示一筆樣本，幫助對齊欄位
-  console.log('info: sample normalized row:', JSON.stringify(merged[merged.length - 1], null, 2));
-}
-
-// -----------------------------------------------------------------------------
-// 擷取與解析
-// -----------------------------------------------------------------------------
-async function fetchPageSmart(openDate, pageNum) {
-  // 只用 GET，第一頁從 1 起跳
-  const dateFormats = [openDate, openDate.replaceAll('-', '/')];
-
-  for (const ep of CANDIDATE_ENDPOINTS) {
-    for (const d of dateFormats) {
-      for (const dk of DATE_KEYS) {
-        for (const pk of PAGE_KEYS) {
-          try {
-            const r = await tryFetchOne({ endpoint: ep, date: d, dateKey: dk, pageKey: pk, pageNum });
-            const totalSize = safeGet(r.json, ['content', 'totalSize']);
-            if (Array.isArray(r.list) && r.list.length > 0) {
-              console.log(`debug: using method=GET endpoint="${ep}" ${dk}="${d}" ${pk}=${pageNum} startPage=1`);
-              if (totalSize != null) console.log(`debug: totalSize=${totalSize} list.length=${r.list.length}`);
-              return { ...r, chosen: { endpoint: ep, dateFormat: d.includes('/') ? 'slash' : 'dash', dateKey: dk, pageKey: pk } };
-            }
-            // 僅第一頁印 detail
-            const topKeys = Object.keys(r.json ?? {});
-            const contentKeys = r.json?.content ? Object.keys(r.json.content) : [];
-            console.warn(`warn: empty list with GET ${dk}=${d} ${pk}=${pageNum} pageSize=${PAGE_SIZE}`);
-            console.warn('warn: top-level keys =', topKeys);
-            if (contentKeys.length) console.warn('warn: content keys =', contentKeys);
-          } catch (e) {
-            console.warn(`warn: fetch failed (GET ${dk}=${d} ${pk}=${pageNum}): ${e.message}`);
-            // 若是 500, 405 之類就換組合重試
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-async function fetchPageWithChosen(openDate, pageNum, chosen) {
-  const date = chosen?.dateFormat === 'slash' ? openDate.replaceAll('-', '/') : openDate;
-  return tryFetchOne({
-    endpoint: chosen.endpoint,
-    date,
-    dateKey: chosen.dateKey,
-    pageKey: chosen.pageKey,
-    pageNum
-  }).catch(e => {
-    console.warn(`warn: fetch page ${pageNum} failed: ${e.message}`);
-    return null;
-  });
-}
-
-// 嘗試打一種組合
-async function tryFetchOne({ endpoint, date, dateKey, pageKey, pageNum }) {
-  if (!BASE_URL) {
-    throw new Error('BINGO_API_BASE is empty. Please set env BINGO_API_BASE to your API host, e.g. https://example.com');
-  }
-  const url = new URL(endpoint, BASE_URL);
-  url.searchParams.set(dateKey, date);
-  url.searchParams.set(pageKey, String(pageNum));     // 第一頁=1
-  url.searchParams.set('pageSize', String(PAGE_SIZE));
-
-  const res = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      'accept': 'application/json, text/plain, */*'
-    }
-  });
-
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}`);
-  }
-
-  const json = await parseJsonSafe(res);
-  const list = pickListFromApi(json);
-  return { url: url.toString(), json, list };
-}
-
-// 從 API 回傳中挑出清單（優先 content.bingoQueryResult）
-function pickListFromApi(json) {
-  if (Array.isArray(json)) return json;
-  const j = json ?? {};
-  const c = j.content ?? j.data ?? j.Content ?? {};
-
-  const candidates = [
-    c?.bingoQueryResult,      // <= 這次日誌顯示的真正清單
-    c?.list, c?.rows, c?.result, c?.data, c?.List, c?.bingoList, c?.items,
-    j?.list, j?.rows, j?.result, j?.List
-  ];
-  for (const x of candidates) {
-    if (Array.isArray(x)) return x;
-  }
-  return [];
-}
-
-// -----------------------------------------------------------------------------
-// 標準化
-// -----------------------------------------------------------------------------
-function normalizeItem(item) {
-  if (!item || typeof item !== 'object') return null;
-
-  // 期間/期數 (period)
-  const period =
-    str(item?.period) ??
-    str(item?.issueNo) ??
-    str(item?.issue) ??
-    str(item?.drawNo) ??
-    str(item?.PERIOD) ??
-    str(item?.id) ??
-    null;
-
-  // 日期
-  const dateRaw =
-    str(item?.openDate) ??
-    str(item?.open_time) ??
-    str(item?.openTime) ??
-    str(item?.drawDate) ??
-    str(item?.date) ??
-    str(item?.OPEN_DATE) ??
-    '';
-
-  const date = normalizeDate(dateRaw); // 轉成 YYYY-MM-DD（如果辦得到）
-
-  // 20 顆球
-  // 可能來自字串 "1,2,3..." 或 "1 2 3 ..." 或 "[1,2,...]"，或陣列
-  const ballsStr =
-    str(item?.winNo) ??
-    str(item?.winningNumbers) ??
-    str(item?.WinningNumbers) ??
-    str(item?.winningNum) ??
-    str(item?.numbers) ??
-    str(item?.OpenCode) ??
-    str(item?.winNumbers) ??
-    str(item?.WIN_NO) ??
-    str(item?.num) ??
-    str(item?.bingoNumbers) ??
-    '';
-
-  const ballsArr = Array.isArray(item?.numbers)
-    ? item.numbers
-    : parseNumbers(ballsStr);
-
-  const balls = cleanupBalls(ballsArr);
-
-  // super / 特別號
-  const superRaw =
-    item?.super ??
-    item?.superNumber ??
-    item?.SUPER ??
-    item?.special ??
-    item?.extra ??
-    item?.super_num ??
-    item?.superNo ??
-    item?.superBall ??
-    null;
-
-  const superNum = toInt(superRaw, null);
-
-  // 基本驗證：balls 需是數字陣列，通常 20 顆（若不是也仍保留）
-  if (!Array.isArray(balls) || balls.length === 0) return null;
-
-  return {
-    period: period ?? '',           // 有些來源沒有 period，仍保留
-    date: date ?? '',
-    balls,
-    super: superNum
-  };
-}
-
-// -----------------------------------------------------------------------------
-// 工具
-// -----------------------------------------------------------------------------
-function tzDate(tz) {
-  // 取某時區當地日期 YYYY-MM-DD
-  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
-  return fmt.format(new Date()); // en-CA -> YYYY-MM-DD
-}
-
-function toInt(v, d = 0) {
-  const n = Number.parseInt(String(v ?? '').trim(), 10);
-  return Number.isFinite(n) ? n : d;
-}
-
-function str(v) {
-  if (v == null) return null;
-  const s = String(v).trim();
-  return s.length ? s : null;
-}
-
-async function parseJsonSafe(res) {
-  const text = await res.text();
+// 小工具
+async function readJson(file) {
   try {
-    return JSON.parse(text);
-  } catch {
-    // 有些 API 回 JSONP 或帶 BOM，簡單清一下
-    const cleaned = text
-      .replace(/^[\ufeff]+/, '')
-      .replace(/^\)\]\}',?/, '')
-      .trim();
-    try {
-      return JSON.parse(cleaned);
-    } catch {
-      return {};
-    }
-  }
-}
-
-function pickDateParts(s) {
-  // 從各種字串中抓出 YYYY-MM-DD
-  if (!s) return null;
-  // 支援 "YYYY-MM-DD", "YYYY/MM/DD", "YYYYMMDD", "YYYY-MM-DD hh:mm:ss"
-  const m =
-    s.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/) ||
-    s.match(/(\d{4})(\d{2})(\d{2})/);
-  if (!m) return null;
-  let y = Number(m[1]);
-  let mo = Number(m[2]);
-  let d = Number(m[3]);
-  if (!y || !mo || !d) return null;
-  return { y, mo, d };
-}
-
-function normalizeDate(s) {
-  const p = pickDateParts(s || '');
-  if (!p) return '';
-  const mm = String(p.mo).padStart(2, '0');
-  const dd = String(p.d).padStart(2, '0');
-  return `${p.y}-${mm}-${dd}`;
-}
-
-function parseNumbers(s) {
-  if (!s) return [];
-  // 支援 "1,2,3", "1 2 3", "1|2|3", "1、2、3" 等
-  const parts = String(s)
-    .replace(/[\[\]\(\)]/g, ' ')
-    .split(/[^0-9]+/g)
-    .map(x => x.trim())
-    .filter(Boolean);
-  return parts.map(n => toInt(n, NaN)).filter(Number.isFinite);
-}
-
-function cleanupBalls(arr) {
-  if (!Array.isArray(arr)) return [];
-  // 僅保留 1~80 的整數，去重，最多保留 20 顆（BINGO 典型）
-  const set = new Set();
-  for (const n of arr) {
-    const v = toInt(n, NaN);
-    if (!Number.isFinite(v)) continue;
-    if (v < 1 || v > 80) continue;
-    set.add(v);
-    if (set.size >= 20) break;
-  }
-  return Array.from(set.values());
-}
-
-function readJsonArraySafe(file) {
-  try {
-    const txt = fs.readFileSync(file, 'utf8');
-    const j = JSON.parse(txt);
-    return Array.isArray(j) ? j : [];
+    const s = await fs.readFile(file, 'utf8');
+    return JSON.parse(s);
   } catch {
     return [];
   }
 }
+async function writeJson(file, data) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
+}
 
-function mergeByPeriod(oldArr, newArr) {
-  const map = new Map();
-  for (const x of oldArr) {
-    if (!x || typeof x !== 'object') continue;
-    map.set(String(x.period ?? ''), x);
+async function safeFetch(url, opts = {}) {
+  console.log('debug: GET', url);
+  const res = await fetch(url, { ...opts, redirect: 'follow' });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw Object.assign(new Error(`${res.status} ${res.statusText}`), {
+      status: res.status,
+      body: text?.slice(0, 400),
+    });
   }
-  for (const y of newArr) {
-    const key = String(y.period ?? '');
-    if (!key || !map.has(key)) {
-      map.set(key, y);
-    } else {
-      // 若要覆蓋，可在此比較日期新舊或欄位完整度
-      // 這裡採「舊優先不覆蓋」
+  // 嘗試 JSON；失敗就回文字
+  const ctype = res.headers.get('content-type') || '';
+  if (ctype.includes('application/json')) return res.json();
+  return res.text();
+}
+
+// ==== 第一階段：嘗試 API（多種參數名稱）====
+async function tryOfficialApi(openDate) {
+  // 這裡留白「endpoint 清單」，因為官網 API 路徑常改名。
+  // 你可以把觀察到能回 200 的實際路徑補在 endpoints 裡。
+  const endpoints = [
+    // 以下是「猜測」的範例，請依你 curl/Log 驗證後改成正確路徑：
+    // '/api/Games/BingoBingo/GetAwardList',
+    // '/api/BingoBingo/GetAwardList',
+    // '/api/Draw/GetBingoAwardList',
+  ];
+
+  const dateKeys = ['openDate', 'queryDate', 'drawDate', 'date', 'OpenDate'];
+  const pageKeys = ['pageNum', 'pageIndex', 'page'];
+
+  for (const ep of endpoints) {
+    for (const dk of dateKeys) {
+      for (const pk of pageKeys) {
+        for (let page = 1; page <= Math.min(MAX_PAGES, 3); page += 1) {
+          const url = `${BASE}${ep}?${dk}=${openDate}&${pk}=${page}&pageSize=${PAGE_SIZE}`;
+          try {
+            const data = await safeFetch(encodeURI(url));
+            // 依實際 API 結構調整解析：
+            // 預期 data 會有 list；這裡盡量兼容常見結構
+            const list = Array.isArray(data?.list)
+              ? data.list
+              : Array.isArray(data?.data)
+              ? data.data
+              : Array.isArray(data?.result)
+              ? data.result
+              : Array.isArray(data)
+              ? data
+              : [];
+
+            if (list.length) {
+              console.log(`info: API hit at ${ep} (${dk}, ${pk}) page=${page}, got ${list.length} rows`);
+              return { rows: list, source: 'api', meta: { ep, dk, pk } };
+            }
+          } catch (err) {
+            console.log(`warn: API 失敗 (${url}): ${err.message}`);
+          }
+          await delay(100);
+        }
+      }
     }
   }
-  return Array.from(map.values());
+  return { rows: [], source: 'api' };
 }
 
-function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-}
+// ==== 第二階段：HTML fallback（官網頁面解析）====
+import { JSDOM } from 'jsdom';
 
-function relPath(p) {
-  return path.relative(process.cwd(), p);
-}
+// 嘗試幾個可能的頁面（舉例）
+const HTML_PAGES = [
+  // 有些官網頁面會把當日或近幾期資料渲染在 HTML/JS 中
+  'https://www.taiwanlottery.com/lotto/bingobingo/drawing.aspx',
+  'https://www.taiwanlottery.com/lotto/bingobingo/history.aspx',
+];
 
-function safeGet(obj, pathArr) {
-  let cur = obj;
-  for (const k of pathArr) {
-    if (!cur || typeof cur !== 'object') return undefined;
-    cur = cur[k];
+function parseBingoFromHtml(html) {
+  const dom = new JSDOM(html);
+  const doc = dom.window.document;
+
+  // 這部分依實際 DOM 結構微調：以下提供一個「通用」搜表格/清單的策略
+  const rows = [];
+  const tables = [...doc.querySelectorAll('table')];
+  for (const tb of tables) {
+    const trs = [...tb.querySelectorAll('tr')];
+    for (const tr of trs) {
+      const tds = [...tr.querySelectorAll('td,th')].map((x) => x.textContent.trim());
+      // 嘗試從一列中抓出 20 顆球＋期別（需依實際頁面調）
+      const nums = tds.flatMap((t) => t.match(/\d+/g) || []).map((x) => Number(x)).filter((n) => n >= 1 && n <= 80);
+      if (nums.length >= 20) {
+        const balls = nums.slice(0, 20);
+        const superNum = nums.find((n, i) => i >= 20 && n >= 1 && n <= 80) ?? null;
+        // 期別：從該列文字找連續數字長串
+        const periodMatch = tds.join(' ').match(/\b\d{6,}\b/);
+        rows.push({
+          period: periodMatch ? periodMatch[0] : '',
+          date: '',
+          balls,
+          super: superNum,
+        });
+      }
+    }
   }
-  return cur;
+  // 去重＆基本清洗
+  const uniq = new Map();
+  for (const r of rows) {
+    const key = r.period ? r.period : r.balls.join('-') + '-' + r.super;
+    if (!uniq.has(key)) uniq.set(key, r);
+  }
+  return [...uniq.values()];
 }
 
-function uniq(arr) {
-  return Array.from(new Set(arr));
+async function scrapeHtmlFallback() {
+  for (const url of HTML_PAGES) {
+    try {
+      console.log('debug: GET (html)', url);
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const html = await res.text();
+      const rows = parseBingoFromHtml(html);
+      if (rows.length) {
+        console.log(`info: HTML 解析到 ${rows.length} 筆`);
+        return { rows, source: 'html' };
+      }
+    } catch (err) {
+      console.log('warn: HTML 失敗', url, err.message);
+    }
+  }
+  return { rows: [], source: 'html' };
 }
 
-// -----------------------------------------------------------------------------
-// 執行
-// -----------------------------------------------------------------------------
-main().catch(err => {
-  console.error('fatal:', err?.stack || err?.message || err);
-  process.exitCode = 1;
+// ==== 主流程 ====
+(async () => {
+  console.log(`info: openDate=${OPEN_DATE} pageSize=${PAGE_SIZE} maxPages=${MAX_PAGES} backfill=true`);
+
+  const existing = await readJson(DATA_FILE);
+
+  // 先打 API
+  let { rows, source } = await tryOfficialApi(OPEN_DATE);
+
+  // 全部 404/空 -> 退回 HTML 解析
+  if (!rows.length) {
+    console.log('warn: API 全部 404 或無資料，嘗試 HTML fallback...');
+    const fb = await scrapeHtmlFallback();
+    rows = fb.rows;
+    source = fb.source;
+  }
+
+  if (!rows.length) {
+    console.log('warn: API returned no parseable rows, skip write.');
+    process.exit(0);
+  }
+
+  // 將 rows 正規化（依你的前端需求）
+  const normalized = rows.map((r) => ({
+    period: String(r.period || ''),
+    date: r.date || '',
+    balls: Array.isArray(r.balls) ? r.balls.slice(0, 20).map((n) => Number(n)) : [],
+    super: r.super != null ? Number(r.super) : null,
+  })).filter(r => r.balls.length === 20);
+
+  // 合併舊資料（以 period/balls 為 key 去重）
+  const keyOf = (it) => (it.period ? `P:${it.period}` : `B:${it.balls.join('-')}:${it.super ?? ''}`);
+  const map = new Map(existing.map((e) => [keyOf(e), e]));
+  for (const n of normalized) map.set(keyOf(n), n);
+  const merged = [...map.values()];
+
+  // 有變化才寫檔
+  const changed = JSON.stringify(existing) !== JSON.stringify(merged);
+  if (changed) {
+    await writeJson(DATA_FILE, merged);
+    console.log(`info: ${source} -> write ${DATA_FILE}, total=${merged.length}`);
+  } else {
+    console.log('info: no changes after merge.');
+  }
+})().catch((e) => {
+  console.error('fatal:', e.message);
+  process.exit(1);
 });
