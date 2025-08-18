@@ -4,7 +4,7 @@ const TEMP = 'flutter-temp-cache';
 const CACHE_NAME = 'flutter-app-cache';
 
 const RESOURCES = {"draws.json": "d751713988987e9331980363e24189ce",
-"flutter_bootstrap.js": "86389e8a3ba8c1125b16055569e0e6bc",
+"flutter_bootstrap.js": "8b66e694638aa2adeb51ad386ecf434c",
 "flutter.js": "888483df48293866f9f41d3d9274a779",
 "favicon.png": "5dcef449791fa27946b3d35ad8803796",
 "icons/Icon-maskable-512.png": "301a7604d45b3e739efc881eb04896ea",
@@ -12,6 +12,7 @@ const RESOURCES = {"draws.json": "d751713988987e9331980363e24189ce",
 "icons/Icon-512.png": "96e752610906ba2a93c65f8abe1645f1",
 "icons/Icon-192.png": "ac9a721a12bbc803b44f645561ecb1e1",
 "manifest.json": "ed3fa3d567286617a4247e5d5617d99a",
+"data/draws.json": "d751713988987e9331980363e24189ce",
 "version.json": "999cd03f3126141b064658017a58a1c6",
 "canvaskit/skwasm.js": "1ef3ea3a0fec4569e5d531da25f34095",
 "canvaskit/chromium/canvaskit.js": "5e27aae346eee469027c80af0751d53d",
