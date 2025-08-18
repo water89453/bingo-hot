@@ -1,15 +1,17 @@
 name: fetch
 
 on:
-  schedule:
-    - cron: '*/1 23 * * *'     # UTC 23:00–23:59 → 台北 07:00–07:59
-    - cron: '*/1 0-15 * * *'   # UTC 00:00–15:59 → 台北 08:00–23:59
+  # 支援手動輸入 open_date（YYYY-MM-DD），不填就抓台北今天
   workflow_dispatch:
     inputs:
-      force:
-        description: '強制執行（忽略時間條件）'
+      open_date:
+        description: 'Override openDate (YYYY-MM-DD). Leave empty to use Taipei today.'
         required: false
-        default: 'false'
+        default: ''
+  # 定時：UTC 23:00–23:59、00:00–15:59（涵蓋台北 07:00–23:59）
+  schedule:
+    - cron: '*/1 23 * * *'
+    - cron: '*/1 0-15 * * *'
 
 permissions:
   contents: write
@@ -18,21 +20,28 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      - run: npm ci --no-audit --no-fund
+      - name: Install deps (npm ci)
+        run: npm ci --no-audit --no-fund
 
-      - name: Decide whether to run this minute
+      # 👉 測試時可用 force=true 跳過時間判斷。平常手動不填就走原邏輯。
+      - name: Decide whether to run this minute (Asia/Taipei)
         id: gate
         shell: bash
+        env:
+          force: "${{ github.event.inputs.open_date != '' && 'true' || '' }}"
         run: |
-          force="${{ github.event.inputs.force || 'false' }}"
+          force="${force}"
           if [[ "$force" == "true" ]]; then
             echo "👉 Force mode: always run"
             echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
@@ -55,6 +64,7 @@ jobs:
           fi
 
           echo "now(Taipei)=$hour:$minute in_window=$in_window on_edge=$on_edge"
+
           if [[ "$in_window" == "true" && "$on_edge" == "true" ]]; then
             echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
           else
@@ -64,18 +74,21 @@ jobs:
       - name: Skip when outside window
         if: steps.gate.outputs.run_this_minute == 'false'
         run: |
-          echo "👉 Skipped by gate."
+          echo "👉 Skipped (not in 07:05–23:55 or not at +1/+2 of a 5-min slot)."
           exit 0
 
-      - name: Run fetch script (today in Taipei, pageSize=50)
+      - name: Run fetch script
         env:
+          # ⬇️ 手動觸發時，如果你有填 open_date，就會帶入；排程則為空 → 腳本用台北今天
+          OPEN_DATE: ${{ github.event.inputs.open_date }}
           PAGE_SIZE: '50'
           MAX_PAGES: '20'
         run: node scripts/fetch_bingo.mjs
 
-      - name: Show tail of draws.json
+      - name: Show tail of draws.json (debug)
         run: |
           if command -v jq >/dev/null 2>&1; then
+            echo "Last 5 rows of web/data/draws.json:"
             tail -n +1 web/data/draws.json | jq '.[-5:]'
           fi
 
