@@ -2,16 +2,17 @@ name: Fetch Bingo (every 5 minutes)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"    # 每 5 分鐘 (UTC)
-  workflow_dispatch:         # 手動執行
+    - cron: "*/5 * * * *"      # 每 5 分鐘 (UTC)
+  workflow_dispatch:
+
 permissions:
-  contents: write            # 這行是關鍵，允許推回 repo
+  contents: write
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (full history for safe commit)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -22,33 +23,31 @@ jobs:
         with:
           node-version: '20'
 
+      # 用 npm ci，鎖定 lockfile，不會去改 package-lock.json
       - name: Install deps
-        run: npm install
+        run: npm ci --no-audit --no-fund
 
       - name: Run crawler
         run: npm run fetch
 
-      - name: Show diff (for debug)
+      - name: Show diff (debug)
         run: |
-          echo "Changed files:"
           git status --porcelain
           if [ -f web/data/draws.json ]; then
             echo "draws.json size:" $(wc -c < web/data/draws.json) "bytes"
-            head -c 500 web/data/draws.json || true
-            echo
           fi
 
-      - name: Commit & Push if changed
+      # 只在 draws.json 有變更時才提交
+      - name: Commit & Push draws.json if changed
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # 只有真的有變更才 commit
-          if ! git diff --quiet; then
+          if ! git diff --quiet -- web/data/draws.json; then
             git add web/data/draws.json
             git commit -m "chore(data): update draws.json [skip ci]"
             git push
             echo "Pushed updated JSON."
           else
-            echo "No changes to commit."
+            echo "No changes to draws.json."
           fi
