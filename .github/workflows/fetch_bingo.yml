@@ -1,0 +1,114 @@
+name: fetch
+
+on:
+  # 每分鐘觸發一次，由步驟自行判斷是否真的要跑
+  schedule:
+    - cron: "*/1 * * * *"
+  # 手動觸發可強制執行，或指定 open_date
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Run now (ignore time window)"
+        required: false
+        default: "false"
+      open_date:
+        description: "Override OPEN_DATE (e.g. 2025-08-18)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-bingo
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      # 只在台北時間 07:05–23:55 且分針為 01/02 或 06/07 ... 這類「邊緣」分鐘才跑；
+      # 若手動觸發且 force=true，則永遠跑。
+      - name: Decide to run this minute
+        id: gate
+        env:
+          force: ${{ github.event.inputs.force || 'false' }}
+        shell: bash
+        run: |
+          force="${force}"
+          if [[ "$force" == "true" ]]; then
+            echo "👉 Force mode: always run"
+            echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          TZ=Asia/Taipei hour=$(date +%H)
+          TZ=Asia/Taipei minute=$(date +%M)
+          hhmm="${hour}${minute}"
+
+          in_window=false
+          if [[ "$hhmm" > "0704" && "$hhmm" < "2356" ]]; then
+            in_window=true
+          fi
+
+          mod=$((10#$minute % 5))
+          on_edge=false
+          if [[ $mod -eq 1 || $mod -eq 2 ]]; then
+            on_edge=true
+          fi
+
+          echo "now(Taipei)=$hour:$minute in_window=$in_window on_edge=$on_edge"
+          if [[ "$in_window" == "true" && "$on_edge" == "true" ]]; then
+            echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_this_minute=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch bingo data
+        if: steps.gate.outputs.run_this_minute == 'true'
+        env:
+          # ★ 從 Repository Variables 讀取 API Base
+          BINGO_API_BASE: ${{ vars.BINGO_API_BASE }}
+          # 可由手動觸發帶入，留空則讓腳本自己決定（通常取今天）
+          OPEN_DATE: ${{ github.event.inputs.open_date }}
+          PAGE_SIZE: 50
+          MAX_PAGES: 20
+        run: node scripts/fetch_bingo.mjs
+
+      - name: Show last 5 rows (draws.json)
+        if: always()
+        shell: bash
+        run: |
+          if command -v jq >/dev/null 2>&1; then
+            echo "Last 5 rows of web/data/draws.json:"
+            tail -n +1 web/data/draws.json | jq '.[-5:]'
+          fi
+
+      - name: Commit & push if changed
+        if: steps.gate.outputs.run_this_minute == 'true'
+        shell: bash
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- web/data/draws.json; then
+            git add web/data/draws.json
+            git commit -m "chore(data): update draws.json [skip ci]"
+            git push
+            echo "Pushed updated JSON."
+          else
+            echo "No changes to draws.json."
+          fi
