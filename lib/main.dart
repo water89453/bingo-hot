@@ -163,9 +163,9 @@ class _StatsHomeState extends State<StatsHome> {
       appBar: AppBar(
         title: const Text('Bingo 歷史熱度（近 N 期）'),
         actions: [
-          // 文字貼上匯入
+          // 文字貼上匯入（允許逗號、空白、換行）
           IconButton(
-            tooltip: '貼上匯入（每行 20 顆）',
+            tooltip: '貼上匯入（支援逗號/空白/換行）',
             icon: const Icon(Icons.content_paste_go),
             onPressed: () async {
               final rows = await showDialog<List<Draw>>(
@@ -473,7 +473,9 @@ class _StatsHomeState extends State<StatsHome> {
 
 // ========== Dialogs ==========
 
-/// 貼上匯入：每行 20 顆，最後一顆當超級獎號（若沒填也會用第 20 顆）
+/// 貼上匯入（新版）：整段中逗號/空白/換行皆為分隔，連續 20/21 顆視為一筆
+/// - 20 顆：第 20 顆當超級獎號
+/// - 21 顆：第 21 顆當超級獎號
 class _PasteDialog extends StatefulWidget {
   const _PasteDialog();
   @override
@@ -483,18 +485,80 @@ class _PasteDialog extends StatefulWidget {
 class _PasteDialogState extends State<_PasteDialog> {
   final _controller = TextEditingController();
 
+  // 嘗試「逐行」解析；若整段都解析不到一筆，再退回「整段連續切 20/21」解析
+  List<Draw> _parsePasted(String text) {
+    final results = <Draw>[];
+
+    // 工具：把一串 token 轉成一筆 Draw（20 或 21 顆）
+    Draw? _tokensToDraw(List<int> tokens) {
+      if (tokens.length < 20) return null;
+      final first20 = tokens.take(20).toList();
+      if (first20.toSet().length != 20) return null;
+      final superBall = (tokens.length >= 21) ? tokens[20] : first20.last;
+      final balls = first20..sort();
+      return Draw(balls: balls, superBall: superBall);
+    }
+
+    // 1) 逐行（每行 >=20 顆就當一筆）
+    final lines = const LineSplitter().convert(text);
+    for (final line in lines) {
+      final toks = line
+          .replaceAll(RegExp(r'[^0-9,\s]'), ' ')
+          .split(RegExp(r'[\s,]+'))
+        ..removeWhere((t) => t.isEmpty);
+      final nums = <int>[];
+      for (final t in toks) {
+        final v = int.tryParse(t);
+        if (v != null && v >= 1 && v <= 80) {
+          nums.add(v);
+          if (nums.length >= 21) break;
+        }
+      }
+      final one = _tokensToDraw(nums);
+      if (one != null) results.add(one);
+    }
+    if (results.isNotEmpty) return results;
+
+    // 2) 退回整段切：把所有數字抓出來，依序切 21 或 20 顆
+    final allToks = text
+        .replaceAll(RegExp(r'[^0-9,\s]'), ' ')
+        .split(RegExp(r'[\s,]+'))
+      ..removeWhere((t) => t.isEmpty);
+    final allNums = <int>[];
+    for (final t in allToks) {
+      final v = int.tryParse(t);
+      if (v != null && v >= 1 && v <= 80) allNums.add(v);
+    }
+    int i = 0;
+    while (i + 20 <= allNums.length) {
+      // 若剩餘 >= 21，就優先當 21 顆（含超級）；否則取 20 顆
+      final take = (i + 21 <= allNums.length) ? 21 : 20;
+      final chunk = allNums.sublist(i, i + take);
+      final one = _tokensToDraw(chunk);
+      if (one != null) results.add(one);
+      i += take;
+    }
+    return results;
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('貼上歷史開獎（每行 20 顆；最後一顆為超級獎號）'),
+      title: const Text('貼上歷史開獎（逗號/空白/換行皆可）'),
       content: SizedBox(
         width: 520,
         child: TextField(
           controller: _controller,
           maxLines: 12,
           decoration: const InputDecoration(
-            hintText:
-                '每行 20 個 1..80 的數字，空白/逗號皆可。\n例如：\n1 2 3 ... 20\n3,6,9,12,...,60',
+            hintText: '可一次貼多期：\n'
+                '・每期 20 顆（第 20 顆 = 超級）或 21 顆（第 21 顆 = 超級）\n'
+                '・逗號 / 空白 / 換行皆可作為分隔\n'
+                '例：\n'
+                '04 08 15 16 18 ... 74\n'
+                '或\n'
+                '04\n08\n15\n...\n74\n(21 顆時最後一顆為超級)',
+            border: OutlineInputBorder(),
           ),
         ),
       ),
@@ -502,25 +566,7 @@ class _PasteDialogState extends State<_PasteDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(
           onPressed: () {
-            final lines = const LineSplitter().convert(_controller.text);
-            final out = <Draw>[];
-            for (final line in lines) {
-              final toks = line
-                  .replaceAll(RegExp(r'[^\d,\s]'), ' ')
-                  .split(RegExp(r'[\s,]+'))
-                ..removeWhere((t) => t.isEmpty);
-              final nums = <int>[];
-              for (final t in toks) {
-                final v = int.tryParse(t);
-                if (v != null && v >= 1 && v <= 80) nums.add(v);
-                if (nums.length >= 21) break; // 最多抓 21 顆（含超級）
-              }
-              if (nums.length < 20) continue;
-              final balls = nums.take(20).toSet().toList()..sort();
-              if (balls.length != 20) continue;
-              final superBall = (nums.length >= 21) ? nums[20] : balls.last;
-              out.add(Draw(balls: balls, superBall: superBall));
-            }
+            final out = _parsePasted(_controller.text);
             Navigator.pop(context, out);
           },
           child: const Text('匯入'),
@@ -530,7 +576,7 @@ class _PasteDialogState extends State<_PasteDialog> {
   }
 }
 
-/// 快速新增：支援「貼上 20/21 顆（逗號/空白/換行）」與「手動勾選」
+/// 快速新增（不變）：手動勾選 20 顆，再指定超級
 class _QuickAddDialog extends StatefulWidget {
   const _QuickAddDialog();
   @override
@@ -541,99 +587,17 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
   final sel = <int>{};
   int? superBall;
 
-  // 文字貼上模式
-  final pasteController = TextEditingController();
-
-  List<int> _parseNums(String text) {
-    final toks = text
-        .replaceAll(RegExp(r'[^0-9,\s]'), ' ')
-        .split(RegExp(r'[\s,]+')) // 逗號、空白、換行都可
-      ..removeWhere((t) => t.isEmpty);
-    final nums = <int>[];
-    for (final t in toks) {
-      final v = int.tryParse(t);
-      if (v != null && v >= 1 && v <= 80) {
-        nums.add(v);
-        if (nums.length >= 21) break; // 最多取到 21 顆（含超級）
-      }
-    }
-    return nums;
-  }
-
-  void _applyFromPasted(List<int> nums) {
-    if (nums.length < 20) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('至少需要 20 顆號碼（1..80）')),
-      );
-      return;
-    }
-    // 規則：20 顆 → 第 20 顆為超級；21 顆 → 第 21 顆為超級
-    final balls = nums.take(20).toList();
-    if (balls.toSet().length != 20) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('前 20 顆不可重複')),
-      );
-      return;
-    }
-    final sup = (nums.length >= 21) ? nums[20] : balls.last;
-    setState(() {
-      sel
-        ..clear()
-        ..addAll(balls);
-      superBall = sup;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final canPickSuper = sel.length == 20;
     return AlertDialog(
       title: const Text('快速新增（20 顆 + 超級獎號）'),
       content: SizedBox(
-        width: 560,
+        width: 520,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ====== 方式一：貼上 20/21 顆 ======
-              const Text('方式一：貼上 20 或 21 顆（逗號/空白/換行分隔）'),
-              const SizedBox(height: 6),
-              TextField(
-                controller: pasteController,
-                maxLines: 6,
-                decoration: const InputDecoration(
-                  hintText: '例：\n4 8 15 16 18 ...（20 顆→第 20 顆為超級）\n或\n4,8,15,16,18,...,74,21（21 顆→第 21 顆為超級）',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.playlist_add),
-                    label: const Text('用貼上的內容帶入'),
-                    onPressed: () {
-                      final nums = _parseNums(pasteController.text);
-                      _applyFromPasted(nums);
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    sel.length == 20 && superBall != null
-                        ? '→ 已帶入 ${sel.length} 顆，超級：$superBall'
-                        : '',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 8),
-
-              // ====== 方式二：手動勾選 ======
-              const Text('方式二：手動勾選 20 顆，再指定超級獎號'),
-              const SizedBox(height: 6),
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
@@ -657,7 +621,7 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
               ),
               const SizedBox(height: 12),
               Text('已選：${sel.length}/20', style: const TextStyle(fontSize: 12)),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               const Text('在下列 20 顆中選擇超級獎號：'),
               const SizedBox(height: 6),
               Wrap(
@@ -682,15 +646,9 @@ class _QuickAddDialogState extends State<_QuickAddDialog> {
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(
           onPressed: () {
-            if (sel.length != 20) {
+            if (sel.length != 20 || superBall == null) {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('請先備妥 20 顆（貼上或勾選）')),
-              );
-              return;
-            }
-            if (superBall == null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('請從 20 顆中指定 1 顆超級獎號')),
+                const SnackBar(content: Text('請先選滿 20 顆，再指定 1 顆超級獎號')),
               );
               return;
             }
