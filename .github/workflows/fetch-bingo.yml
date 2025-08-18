@@ -1,34 +1,39 @@
-name: Fetch Bingo (every 5 minutes)
+name: fetch
 
 on:
   schedule:
-    - cron: "*/5 * * * *"      # 每 5 分鐘 (UTC)
+    - cron: "*/5 * * * *"     # 每 5 分鐘（UTC）
   workflow_dispatch:
+    inputs:
+      backfillMinutes:
+        description: "Backfill mins (e.g. 60)"
+        required: false
+        default: "0"
 
 permissions:
   contents: write
 
 jobs:
   fetch:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
 
-      # 用 npm ci，鎖定 lockfile，不會去改 package-lock.json
       - name: Install deps
         run: npm ci --no-audit --no-fund
 
       - name: Run crawler
-        run: npm run fetch
+        env:
+          BACKFILL_MINUTES: ${{ github.event.inputs.backfillMinutes || 0 }}
+        run: |
+          export BACKFILL_MINUTES
+          node scripts/fetch_bingo.mjs
 
       - name: Show diff (debug)
         run: |
@@ -37,12 +42,18 @@ jobs:
             echo "draws.json size:" $(wc -c < web/data/draws.json) "bytes"
           fi
 
-      # 只在 draws.json 有變更時才提交
-      - name: Commit & Push draws.json if changed
+      - name: Peek last 5 draws (debug)
+        run: |
+          if command -v jq >/dev/null 2>&1; then
+            tail -n +1 web/data/draws.json | jq '.[-5:]'
+          else
+            echo "jq not found"
+          fi
+
+      - name: Commit & push if changed
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           if ! git diff --quiet -- web/data/draws.json; then
             git add web/data/draws.json
             git commit -m "chore(data): update draws.json [skip ci]"
