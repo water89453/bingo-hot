@@ -2,57 +2,47 @@ name: Fetch Bingo (every 5 minutes)
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # 每 5 分鐘
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write   # 允許寫入 main 分支
+
+concurrency:
+  group: bingo-fetch
+  cancel-in-progress: false
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout (full history, keep credentials)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0            # 重要：拿到完整歷史，rebase 才行
-          persist-credentials: true # 讓 GITHUB_TOKEN 可 push
+          persist-credentials: true
+          fetch-depth: 0   # 需要完整歷史做 rebase
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 20
 
       - name: Install deps
-        run: npm i cheerio
+        run: npm i csv papaparse cheerio node-fetch@3
 
       - name: Run fetch script
         run: node scripts/fetch_bingo.mjs
 
-      # 下面改成：先 fetch + rebase，再 push
+      # 這個 action 會自動：
+      # 1) git pull --rebase
+      # 2) 如果 web/data/draws.json 有異動才 commit & push
+      # 3) 沒有變動 -> 正常結束（不會紅字）
       - name: Commit & push if changed
-        shell: bash
-        run: |
-          set -e
-
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          # 只把我們要的檔案加入暫存
-          git add web/data/draws.json
-
-          # 若沒變動就直接跳過
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
-
-          git commit -m "chore(data): 5-min bingo sync"
-
-          # 先把遠端抓下來、用 rebase 合併，避免 non-fast-forward
-          git fetch origin main
-          git rebase origin/main
-
-          # 再推回 main
-          git push origin HEAD:main
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(data): 5-min bingo sync"
+          file_pattern: web/data/draws.json
+          commit_user_name: "gh-actions[bot]"
+          commit_user_email: "41898282+github-actions[bot]@users.noreply.github.com"
+          push_options: '--force-with-lease'
