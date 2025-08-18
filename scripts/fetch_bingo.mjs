@@ -1,366 +1,466 @@
 // scripts/fetch_bingo.mjs
-// BingoBingo 抓取腳本（支援手動 ENDPOINT 快速通道 + 自動猜 API 參數 + HTML 保底）
-// Node 20+ (原生 fetch)
+// Robust Bingo Bingo fetcher for Taiwan Lottery
+// Features:
+// - Tries multiple API endpoints automatically (new/old domains)
+// - Tries multiple date param keys and formats
+// - Sends proper headers (User-Agent / Origin / Referer)
+// - Falls back to HTML pages (new route / old .aspx) if API returns 404
+// - Normalizes different payload shapes into { period, date, balls[20], super }
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+// ---------- Config & Env ----------
+const ENV = {
+  ENDPOINT: process.env.ENDPOINT?.trim() || '',
+  OPEN_DATE: process.env.OPEN_DATE?.trim() || '',
+  PAGE_SIZE: parseInt(process.env.PAGE_SIZE || '50', 10),
+  MAX_PAGES: parseInt(process.env.MAX_PAGES || '20', 10),
+};
 
-// ----------- 環境變數 -----------
-const BASE      = process.env.BINGO_API_BASE || 'https://api.taiwanlottery.com/TLCAPIWeb';
-const openDate  = process.env.OPEN_DATE || '';         // YYYY-MM-DD（空=今天）
-const PAGE_SIZE = Number(process.env.PAGE_SIZE || '50');
-const MAX_PAGES = Number(process.env.MAX_PAGES || '20');
-const ENDPOINT  = process.env.ENDPOINT || '';          // 例如 /api/Draw/GetBingoAwardList
+const DEFAULT_ENDPOINTS = [
+  // Newer WebAPI first
+  'https://api.taiwanlottery.com/TLCAPIWebAPI/api/Bingo/GetBingoList',
+  'https://api.taiwanlottery.com/TLCAPIWebAPI/api/Bingo/GetBingoResult',
+  // Older paths
+  'https://api.taiwanlottery.com/TLCAPIWeb/Lottery/BingoResult',
+];
 
-// ----------- 小工具 -----------
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const HTML_FALLBACK_URLS = [
+  // Newer MVC-like routes (without .aspx)
+  'https://www.taiwanlottery.com/lotto/bingobingo/drawing',
+  'https://www.taiwanlottery.com/lotto/bingobingo/history',
+  // Older WebForms routes (still try in case)
+  'https://www.taiwanlottery.com/lotto/bingobingo/drawing.aspx',
+  'https://www.taiwanlottery.com/lotto/bingobingo/history.aspx',
+];
 
-async function safeFetch(url, opt = {}) {
-  const res = await fetch(url, { ...opt, headers: { 'accept': 'application/json,*/*;q=0.8' } });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${text ? ` - ${text.slice(0, 120)}` : ''}`);
-  }
-  // 嘗試 JSON -> 失敗就回傳 text
-  const contentType = res.headers.get('content-type') || '';
-  if (contentType.includes('application/json')) return res.json();
-  const txt = await res.text();
-  try { return JSON.parse(txt); } catch { return txt; }
+const HTTP_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+  'Accept': 'application/json, text/plain, */*',
+  'Origin': 'https://www.taiwanlottery.com',
+  'Referer': 'https://www.taiwanlottery.com/lotto/bingobingo/history',
+};
+
+const OUT_PATH = path.join('web', 'data', 'draws.json');
+
+// ---------- Helpers ----------
+function logInfo(...a) { console.log('info:', ...a); }
+function logWarn(...a) { console.warn('warn:', ...a); }
+function logDebug(...a) { console.log('debug:', ...a); }
+
+function todayISO() {
+  const d = new Date();
+  const yyyy = String(d.getUTCFullYear());
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-function toInt(x) {
-  const n = Number(x);
-  return Number.isFinite(n) ? n : undefined;
+// 民國格式：YYYY-MM-DD → 114-08-18（今年是 2025 → 民國 114）
+function toMinguo(dateStr /* YYYY-MM-DD */) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return '';
+  const y = Number(m[1]) - 1911;
+  return `${String(y).padStart(3, '0')}-${m[2]}-${m[3]}`;
 }
 
-function parseBallArray(v) {
-  // 支援：
-  // - [1,2,3,...]
-  // - ["1","2",...]
-  // - "1,2,3,..." / "01,02,..." / "1 2 3 ..."
-  // - [{no:1},{No:2}] / [{num:1}]
-  if (!v) return [];
-  if (Array.isArray(v)) {
-    const arr = v.map(x => {
-      if (typeof x === 'number' || typeof x === 'string') return toInt(x);
-      if (x && typeof x === 'object') {
-        return toInt(x.no ?? x.No ?? x.num ?? x.Num ?? x.n ?? x.value);
-      }
-      return undefined;
-    }).filter(n => Number.isFinite(n));
-    return arr;
-  }
-  if (typeof v === 'string') {
-    const parts = v.split(/[^0-9]+/).map(s => s.trim()).filter(Boolean);
-    return parts.map(toInt).filter(Number.isFinite);
-  }
-  return [];
-}
-
-function pick(obj, keys) {
-  for (const k of keys) {
-    if (obj?.[k] != null) return obj[k];
-  }
-  return undefined;
-}
-
-function normalizeOne(item) {
-  if (!item || typeof item !== 'object') return null;
-
-  // 期別
-  const periodRaw = pick(item, [
-    'period','Period','term','Term','issueNo','IssueNo','drawTerm','DrawTerm',
-    'Serial','SerialNo','id','Id','ID'
-  ]);
-  const period = periodRaw != null ? String(periodRaw).trim() : undefined;
-
-  // 日期
-  const dateRaw = pick(item, [
-    'date','Date','drawDate','DrawDate','openDate','OpenDate','awardDate','AwardDate'
-  ]);
-  const date = dateRaw != null ? String(dateRaw).trim() : '';
-
-  // 球號
-  const ballsRaw = pick(item, [
-    'balls','Balls','numbers','Numbers','nums','Nums','luckyNos','DrawNumbers','DrawNums'
-  ]);
-  const balls = parseBallArray(ballsRaw);
-
-  // 超級號
-  const superRaw = pick(item, [
-    'super','Super','superNo','SuperNo','superNumber','SuperNumber','special','Special','Bonus','extra','Extra'
-  ]);
-  const superNumber =
-    Number.isFinite(toInt(superRaw))
-      ? toInt(superRaw)
-      : (() => {
-          // 有些資料會把超級號混在同一陣列最後一個
-          if (Array.isArray(balls) && balls.length >= 21) {
-            return balls[balls.length - 1];
-          }
-          return undefined;
-        })();
-
-  // 嘗試從其他可能結構補球號：例如 obj {n01:1,n02:3,...}
-  if (balls.length === 0) {
-    const nums = [];
-    for (let i = 1; i <= 20; i++) {
-      const k1 = `n${i.toString().padStart(2,'0')}`;
-      const k2 = `N${i.toString().padStart(2,'0')}`;
-      const k3 = `no${i}`;
-      const v = item[k1] ?? item[k2] ?? item[k3];
-      const iv = toInt(v);
-      if (Number.isFinite(iv)) nums.push(iv);
-    }
-    if (nums.length) {
-      balls.push(...nums);
-    }
-  }
-
-  // 只接受至少 20 個球
-  if (!period || balls.length < 20) return null;
-
-  // balls 只取前 20
-  const first20 = balls.slice(0,20).map(n => toInt(n)).filter(Number.isFinite);
-  if (first20.length !== 20) return null;
-
-  return {
-    period: String(period),
-    date: date || '',
-    balls: first20,
-    super: Number.isFinite(superNumber) ? superNumber : undefined
-  };
-}
-
-function normalizeList(listLike) {
-  const list = Array.isArray(listLike) ? listLike
-              : Array.isArray(listLike?.list) ? listLike.list
-              : Array.isArray(listLike?.data) ? listLike.data
-              : Array.isArray(listLike?.result) ? listLike.result
-              : Array.isArray(listLike?.rows) ? listLike.rows
-              : Array.isArray(listLike?.items) ? listLike.items
-              : Array.isArray(listLike?.Data?.List) ? listLike.Data.List
-              : Array.isArray(listLike?.Response?.Data) ? listLike.Response.Data
-              : [];
-
-  const out = list.map(normalizeOne).filter(Boolean);
-
-  // 去重（以 period 為 key）
+function uniqueByPeriod(arr) {
   const seen = new Set();
-  const uniq = [];
-  for (const r of out) {
-    if (!seen.has(r.period)) {
-      seen.add(r.period);
-      uniq.push(r);
-    }
+  const out = [];
+  for (const r of arr) {
+    const k = r.period ?? '';
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
   }
-  return uniq;
-}
-
-function makeDateVariants() {
-  const d = openDate ? new Date(openDate) : new Date();
-  const yyyy = d.getFullYear();
-  const mm   = String(d.getMonth() + 1).padStart(2, '0');
-  const dd   = String(d.getDate()).padStart(2, '0');
-  const roc  = String(yyyy - 1911).padStart(3, '0');
-
-  return [
-    `${yyyy}-${mm}-${dd}`,
-    `${yyyy}/${mm}/${dd}`,
-    `${roc}-${mm}-${dd}`,
-    `${roc}/${mm}/${dd}`
-  ];
-}
-
-async function tryEndpointOnce(endpoint, dk, dv, pk, page) {
-  const qs = new URLSearchParams();
-  qs.set(dk, dv);
-  if (pk) qs.set(pk, page);
-  if (!qs.has('pageSize')) qs.set('pageSize', String(PAGE_SIZE));
-
-  const url = `${BASE}${endpoint}?${qs.toString()}`;
-  const data = await safeFetch(url);
-  return data;
-}
-
-async function tryEndpointPaged(endpoint, dk, dv, pk) {
-  // 逐頁抓，直到空或達上限
-  const pages = [];
-  for (let p = 1; p <= MAX_PAGES; p++) {
-    try {
-      const data = await tryEndpointOnce(endpoint, dk, dv, pk, p);
-      const got = normalizeList(data);
-      if (got.length === 0) {
-        if (p === 1) {
-          // 第一頁就空，直接放棄
-          return [];
-        }
-        break;
-      }
-      pages.push(...got);
-    } catch (e) {
-      console.log(`warn: fetch failed (GET ${dk}=${dv} ${pk ? `${pk}=${p}` : ''}): ${e.message}`);
-      // 第一頁就 404 / 失敗 => 視為此組不可用
-      if (p === 1) return [];
-      break;
-    }
-    await sleep(120);
-  }
-  return pages;
-}
-
-async function manualFastPath() {
-  if (!ENDPOINT) return null;
-
-  const tryKeys  = ['openDate','queryDate','drawDate','date','OpenDate'];
-  const tryPages = ['pageNum','pageIndex','page','']; // '' 表示不帶分頁參數也試試
-  const dvs = makeDateVariants();
-
-  for (const dv of dvs) {
-    for (const dk of tryKeys) {
-      for (const pk of tryPages) {
-        try {
-          const rows = await tryEndpointPaged(ENDPOINT, dk, dv, pk || null);
-          if (rows.length) {
-            console.log(`info: API hit at ${ENDPOINT} date=${dv} (${dk}${pk?`, ${pk}`:''}) got ${rows.length} rows`);
-            return rows;
-          }
-        } catch (e) {
-          const qs = `${dk}=${encodeURIComponent(dv)}${pk?`&${pk}=1`:''}`;
-          console.log(`warn: manual endpoint failed (${ENDPOINT}?${qs}): ${e.message}`);
-        }
-        await sleep(100);
-      }
-    }
-  }
-  console.log('warn: manual endpoint gave no rows, fallback to auto guessing…');
-  return null;
-}
-
-async function autoGuessApis() {
-  // 嘗試可能的端點
-  const endpoints = [
-    '/api/Draw/GetBingoAwardList',
-    '/api/Game/GetBingoAwardList',
-    '/api/BingoBingo/GetAwardList',
-    '/api/Games/BingoBingo/GetAwardList',
-    '/api/Lottery/GetBingoAwardList'
-  ];
-
-  const dateKeys  = ['openDate','queryDate','drawDate','date','OpenDate'];
-  const pageKeys  = ['pageNum','pageIndex','page','']; // '' = 不帶分頁參數
-  const dvs       = makeDateVariants();
-
-  for (const ep of endpoints) {
-    for (const dv of dvs) {
-      for (const dk of dateKeys) {
-        for (const pk of pageKeys) {
-          const rows = await tryEndpointPaged(ep, dk, dv, pk || null);
-          if (rows.length) {
-            console.log(`info: API hit at ${ep} date=${dv} (${dk}${pk?`, ${pk}`:''}) got ${rows.length} rows`);
-            return rows;
-          }
-          await sleep(100);
-        }
-      }
-    }
-  }
-  return [];
-}
-
-async function htmlFallback() {
-  // 舊官網頁面可能 404，但還是嘗試一次
-  const urls = [
-    'https://www.taiwanlottery.com/lotto/bingobingo/drawing.aspx',
-    'https://www.taiwanlottery.com/lotto/bingobingo/history.aspx'
-  ];
-  for (const u of urls) {
-    try {
-      console.log(`debug: GET (html) ${u}`);
-      const txt = await safeFetch(u);
-      if (typeof txt !== 'string') throw new Error('not html');
-      // 這裡略：若未來有 HTML 結構可 parse，再補解析器
-      throw new Error('parser not implemented for HTML');
-    } catch (e) {
-      console.log(`warn: HTML 失敗 ${u} ${e.message}`);
-    }
-    await sleep(80);
-  }
-  return [];
-}
-
-async function loadExisting() {
-  const p = path.join(__dirname, '..', 'web', 'data', 'draws.json');
-  try {
-    const buf = await fs.readFile(p, 'utf8');
-    const arr = JSON.parse(buf);
-    return Array.isArray(arr) ? arr : [];
-  } catch {
-    return [];
-  }
-}
-
-function mergeDraws(existing, incoming) {
-  const map = new Map(existing.map(r => [String(r.period), r]));
-  for (const r of incoming) {
-    map.set(String(r.period), r);
-  }
-  // 排序：期別數字大到小（或小到大都可，這裡選小到大）
-  const out = [...map.values()].sort((a, b) => {
-    const na = Number(a.period);
-    const nb = Number(b.period);
-    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-    return String(a.period).localeCompare(String(b.period));
-  });
   return out;
 }
 
-async function saveDraws(all) {
-  const p = path.join(__dirname, '..', 'web', 'data', 'draws.json');
-  await fs.mkdir(path.dirname(p), { recursive: true });
-  const json = JSON.stringify(all, null, 2);
-  await fs.writeFile(p, json, 'utf8');
+function parseIntMaybe(x) {
+  const n = Number.parseInt(String(x), 10);
+  return Number.isFinite(n) ? n : null;
 }
 
-async function main() {
-  // 訊息列印
-  console.log(`info: openDate=${openDate || '(today)'} pageSize=${PAGE_SIZE} maxPages=${MAX_PAGES} backfill=true`);
-
-  // 先試手動 endpoint（若有填）
-  let rows = await manualFastPath();
-  if (!rows) {
-    // 自動猜
-    rows = await autoGuessApis();
+function toArrayNumbersMaybe(value) {
+  if (Array.isArray(value)) {
+    const nums = value
+      .map(parseIntMaybe)
+      .filter((x) => Number.isFinite(x));
+    return nums.length ? nums : null;
   }
+  return null;
+}
 
-  if (!rows || rows.length === 0) {
-    console.log('warn: API 全部 404 或無資料，嘗試 HTML fallback...');
-    const htmlRows = await htmlFallback();
-    if (!htmlRows.length) {
-      console.log('warn: API returned no parseable rows, skip write.');
-      return;
+function normalizeOneRecord(raw) {
+  // Try multiple field names
+  const period =
+    raw.period ?? raw.Period ?? raw.DrawTerm ?? raw.Term ?? raw.DrawNo ?? raw.DrawId ?? null;
+
+  const date =
+    raw.date ?? raw.DrawDate ?? raw.OpenDate ?? raw.QueryDate ?? raw.DrawTime ?? raw.Date ?? '';
+
+  // Numbers:
+  // 1) As array: Numbers / Balls / WinningNumbers / DetailList[*]
+  // 2) As object No1..No20
+  // 3) As string "1,2,3,..."
+  let balls = null;
+
+  balls =
+    toArrayNumbersMaybe(raw.Numbers) ||
+    toArrayNumbersMaybe(raw.Balls) ||
+    toArrayNumbersMaybe(raw.WinningNumbers) ||
+    toArrayNumbersMaybe(raw.DetailList) ||
+    null;
+
+  if (!balls) {
+    // Collect No1..No20
+    const tmp = [];
+    for (let i = 1; i <= 20; i++) {
+      const v =
+        raw[`No${i}`] ??
+        raw[`no${i}`] ??
+        raw[`N${i}`] ??
+        raw[`Ball${i}`] ??
+        raw[`b${i}`];
+      const n = parseIntMaybe(v);
+      if (Number.isFinite(n)) tmp.push(n);
     }
-    rows = htmlRows;
+    if (tmp.length) {
+      balls = tmp;
+    }
   }
 
-  // 正常寫入
-  const existing = await loadExisting();
-  const merged   = mergeDraws(existing, rows);
-
-  if (JSON.stringify(existing) === JSON.stringify(merged)) {
-    console.log('warn: no new normalized rows, skip write.');
-    return;
+  if (!balls && typeof raw.Numbers === 'string') {
+    const nums = raw.Numbers.split(/[^\d]+/g).map(parseIntMaybe).filter((x) => Number.isFinite(x));
+    if (nums.length) balls = nums;
+  }
+  if (!balls && typeof raw.Balls === 'string') {
+    const nums = raw.Balls.split(/[^\d]+/g).map(parseIntMaybe).filter((x) => Number.isFinite(x));
+    if (nums.length) balls = nums;
   }
 
-  await saveDraws(merged);
-  console.log(`info: wrote ${merged.length} rows to web/data/draws.json`);
+  // Super number: maybe Super / Special / Bonus / SNo
+  const superNo =
+    parseIntMaybe(raw.super) ??
+    parseIntMaybe(raw.Super) ??
+    parseIntMaybe(raw.Special) ??
+    parseIntMaybe(raw.Bonus) ??
+    parseIntMaybe(raw.SNo) ??
+    null;
+
+  // If any field missing, try nested shapes some APIs use (e.g., raw.Data or raw.Item)
+  const nested = raw.Data || raw.Item || null;
+  if ((!period || !balls) && nested && typeof nested === 'object') {
+    return normalizeOneRecord({ ...nested, super: superNo ?? nested.super ?? nested.Super });
+  }
+
+  // As a last resort: scan object values for 20 integers (1..80) and 1 "super-like"
+  if (!balls) {
+    const allNums = [];
+    for (const v of Object.values(raw)) {
+      if (Array.isArray(v)) {
+        const nums = v.map(parseIntMaybe).filter((x) => x >= 1 && x <= 80);
+        if (nums.length >= 10) allNums.push(...nums);
+      } else if (typeof v === 'string') {
+        const nums = v.split(/[^\d]+/g).map(parseIntMaybe).filter((x) => x >= 1 && x <= 80);
+        if (nums.length >= 10) allNums.push(...nums);
+      }
+    }
+    if (allNums.length >= 20) {
+      balls = allNums.slice(0, 20);
+    }
+  }
+
+  if (!period || !balls || balls.length < 20) return null;
+
+  return {
+    period: String(period),
+    date: typeof date === 'string' ? date : String(date ?? ''),
+    balls: balls.slice(0, 20),
+    super: superNo ?? null,
+  };
 }
 
-main().catch(err => {
-  console.error('fatal:', err);
+function normalizeAPIResponse(json) {
+  // Try many shapes:
+  // 1) { Data: [ ... ] } / { data: [ ... ] }
+  // 2) { Result: [ ... ] } / { result: [ ... ] }
+  // 3) array []
+  // 4) { Items: [...] } / { List: [...] }
+  let list = null;
+  const candidates = [
+    json?.Data,
+    json?.data,
+    json?.Result,
+    json?.result,
+    json?.Items,
+    json?.items,
+    json?.List,
+    json?.list,
+    Array.isArray(json) ? json : null,
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length) {
+      list = c;
+      break;
+    }
+  }
+  // Some APIs use {Data:{List:[...]}}
+  if (!list && json?.Data?.List && Array.isArray(json.Data.List)) list = json.Data.List;
+
+  if (!list) return [];
+
+  const out = [];
+  for (const item of list) {
+    const n = normalizeOneRecord(item);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+function buildDateVariants(dateStr) {
+  // Accept YYYY-MM-DD or YYYY/MM/DD or 民國
+  const ymd = dateStr.replaceAll('/', '-');
+  const variants = new Set();
+  variants.add(ymd); // 2025-08-18
+  variants.add(ymd.replaceAll('-', '/')); // 2025/08/18
+  const ming = toMinguo(ymd);
+  if (ming) {
+    variants.add(ming); // 114-08-18
+    variants.add(ming.replaceAll('-', '/')); // 114/08/18
+  }
+  return [...variants];
+}
+
+const DATE_KEYS = ['openDate', 'queryDate', 'drawDate', 'date', 'OpenDate'];
+const PAGE_KEYS = ['pageNum', 'pageIndex', 'page', '']; // '' means no page param
+
+function buildURL(base, params) {
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === '') continue;
+    usp.set(k, String(v));
+  }
+  const u = base.includes('?') ? `${base}&${usp}` : `${base}?${usp}`;
+  return u;
+}
+
+async function fetchJSON(url) {
+  const res = await fetch(url, { headers: HTTP_HEADERS });
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText}`);
+  }
+  // some endpoints return text/html with JSON content, try json first then text->json
+  try {
+    return await res.json();
+  } catch {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(`Bad JSON payload from ${url}`);
+    }
+  }
+}
+
+async function tryAPIOnce(endpoint, openDate, pageSize, maxPages) {
+  const rows = [];
+
+  const dateVariants = buildDateVariants(openDate);
+  for (const dateKey of DATE_KEYS) {
+    for (const dateVal of dateVariants) {
+      let gotAnyThisKey = false;
+
+      for (const pageKey of PAGE_KEYS) {
+        for (let p = 1; p <= maxPages; p++) {
+          const params = { [dateKey]: dateVal, pageSize };
+          if (pageKey) params[pageKey] = p;
+
+          const url = buildURL(endpoint, params);
+          try {
+            const json = await fetchJSON(url);
+            const normalized = normalizeAPIResponse(json);
+
+            if (normalized.length) {
+              rows.push(...normalized);
+              gotAnyThisKey = true;
+              logDebug(`ok: ${url} -> +${normalized.length}`);
+              // Continue paging if this page returned data; break when empty
+              if (normalized.length < pageSize) break;
+            } else {
+              // empty page; stop paging for this key/format
+              logDebug(`empty: ${url}`);
+              break;
+            }
+          } catch (err) {
+            logWarn(`fetch failed (GET ${dateKey}=${dateVal} ${pageKey ? `${pageKey}=${p}` : ''}): ${err.message}`);
+            // For 404 on page 1, try next param combo; for later pages, break paging
+            const m = /(\d{3})/.exec(err.message);
+            if (m && Number(m[1]) === 404) {
+              if (p === 1) {
+                // change param combo
+                break;
+              } else {
+                // stop paging
+                break;
+              }
+            } else {
+              // network error or 5xx: try next page or break? safer: break paging
+              break;
+            }
+          }
+        } // page
+      } // pageKey
+
+      if (gotAnyThisKey) {
+        // If we got data for this date key, no need to try other date keys too aggressively
+        // but we keep going to maximize coverage for the same date (some APIs split lists)
+      }
+    } // dateVal
+  } // dateKey
+
+  return uniqueByPeriod(rows);
+}
+
+// Very light HTML parser (best-effort):
+// - 尋找像是 data 物件、或 table 裡的 20 個號碼 + 1 個特別號
+function extractFromHTML(html) {
+  const rows = [];
+
+  // 1) 有些頁面會把 JSON 塞在 window.__DATA__ = {...}
+  const jsonMatch = html.match(/(?:window\.__DATA__|var\s+data)\s*=\s*({[\s\S]*?});/);
+  if (jsonMatch) {
+    try {
+      const obj = JSON.parse(jsonMatch[1]);
+      const normalized = normalizeAPIResponse(obj);
+      if (normalized.length) return uniqueByPeriod(normalized);
+    } catch {}
+  }
+
+  // 2) 粗略抓表格上的數字：一行至少 20 個(1..80) → balls；再找 super（常見落在 1..80）
+  //   注意：這是 best-effort，若版型大改可能抓不到
+  const lineRE = /<tr[\s\S]*?<\/tr>/gi;
+  const tdRE = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+  const numRE = /\b\d{1,2}\b/g;
+
+  const trs = html.match(lineRE) || [];
+  for (const tr of trs) {
+    const cells = [...tr.matchAll(tdRE)].map((m) => m[1].replace(/<[^>]+>/g, '').trim());
+    if (!cells.length) continue;
+    const nums = [];
+    for (const c of cells) {
+      const found = c.match(numRE) || [];
+      for (const n of found) {
+        const v = parseInt(n, 10);
+        if (v >= 1 && v <= 80) nums.push(v);
+      }
+    }
+    if (nums.length >= 20) {
+      const balls = nums.slice(0, 20);
+      const superNo = nums[20] ?? null;
+      // period 嘗試在該列找 9~12 位數字串（賽事期別）
+      const periodMatch = tr.match(/\b\d{9,12}\b/);
+      const period = periodMatch ? periodMatch[0] : '';
+      rows.push({
+        period,
+        date: '',
+        balls,
+        super: superNo ?? null,
+      });
+    }
+  }
+
+  return uniqueByPeriod(rows);
+}
+
+async function tryHTMLFallback() {
+  for (const url of HTML_FALLBACK_URLS) {
+    try {
+      logDebug(`GET (html) ${url}`);
+      const res = await fetch(url, { headers: HTTP_HEADERS });
+      if (!res.ok) {
+        const text = await res.text();
+        logWarn(`HTML 失敗 ${url} ${res.status} ${res.statusText} - ${text.slice(0, 120)}`);
+        continue;
+      }
+      const html = await res.text();
+      const rows = extractFromHTML(html);
+      if (rows.length) return rows;
+    } catch (e) {
+      logWarn(`HTML 抓取錯誤 ${url}: ${e.message}`);
+    }
+  }
+  return [];
+}
+
+async function readExisting() {
+  try {
+    const buf = await fs.readFile(OUT_PATH, 'utf-8');
+    const arr = JSON.parse(buf);
+    if (Array.isArray(arr)) return arr;
+  } catch {}
+  return [];
+}
+
+async function writeIfChanged(newRows) {
+  if (!newRows.length) {
+    logWarn('API returned no parseable rows, skip write.');
+    return false;
+  }
+
+  const existing = await readExisting();
+  // 合併、依 period 去重
+  const map = new Map();
+  for (const r of existing) map.set(r.period, r);
+  for (const r of newRows) map.set(r.period, r);
+
+  const merged = [...map.values()].sort((a, b) => (a.period > b.period ? 1 : -1));
+  const changed = JSON.stringify(merged) !== JSON.stringify(existing);
+
+  if (changed) {
+    await fs.mkdir(path.dirname(OUT_PATH), { recursive: true });
+    await fs.writeFile(OUT_PATH, JSON.stringify(merged, null, 2), 'utf-8');
+  }
+  return changed;
+}
+
+// ---------- Main ----------
+(async () => {
+  const openDate = ENV.OPEN_DATE || todayISO();
+
+  logInfo(`openDate=${openDate} pageSize=${ENV.PAGE_SIZE} maxPages=${ENV.MAX_PAGES} backfill=true`);
+
+  const endpoints = ENV.ENDPOINT ? [ENV.ENDPOINT] : DEFAULT_ENDPOINTS;
+
+  let allRows = [];
+  for (const ep of endpoints) {
+    try {
+      const got = await tryAPIOnce(ep, openDate, ENV.PAGE_SIZE, ENV.MAX_PAGES);
+      if (got.length) {
+        allRows.push(...got);
+      }
+    } catch (e) {
+      logWarn(`endpoint error ${ep}: ${e.message}`);
+    }
+  }
+
+  allRows = uniqueByPeriod(allRows);
+
+  if (!allRows.length) {
+    logWarn('API 全部 404 或無資料，嘗試 HTML fallback...');
+    const htmlRows = await tryHTMLFallback();
+    allRows = htmlRows;
+  }
+
+  const changed = await writeIfChanged(allRows);
+  if (changed) {
+    console.log(`wrote ${OUT_PATH} with ${allRows.length} rows.`);
+  } else {
+    console.log('No changes to draws.json.');
+  }
+})().catch((err) => {
+  console.error(err);
   process.exitCode = 1;
 });
