@@ -1,0 +1,38 @@
+name: Fetch Bingo (every 5 minutes)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # 每 5 分鐘
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install deps
+        run: npm i axios cheerio
+
+      - name: Run fetch script
+        run: node scripts/fetch_bingo.mjs
+
+      - name: Commit & push if changed
+        run: |
+          git config user.name  "gh-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add web/data/draws.json
+            git commit -m "chore(data): 5-min bingo sync"
+            git push
+          else
+            echo "No changes."
+          fi
