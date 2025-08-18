@@ -131,7 +131,7 @@ async function fetchPageText() {
     await page.goto(SOURCE_URL, { waitUntil: "networkidle2", timeout: 60_000 });
 
     // 嘗試等一下（有些頁面會用 JS 填數字）
-    await page.waitForTimeout(2000);
+    await new Promise(r => setTimeout(r, 2000));  // 等 2 秒
 
     const fullText = await page.evaluate(() => document.body.innerText || "");
     return fullText;
