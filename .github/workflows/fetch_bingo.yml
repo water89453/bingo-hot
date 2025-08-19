@@ -2,12 +2,13 @@ name: fetch
 
 on:
   schedule:
-    # 每 5 分鐘觸發一次（UTC）。是否執行由下方 gate 腳本決定（台北時區 + 邊緣分鐘）。
-    - cron: "*/5 * * * *"
+    # 台北 07:00–23:59 => UTC 23:00–15:59
+    - cron: "*/5 23 * * *"     # UTC 23:00–23:55  -> 台北 07:00–07:55
+    - cron: "*/5 0-15 * * *"   # UTC 00:00–15:55  -> 台北 08:00–23:55
   workflow_dispatch:
     inputs:
       OPEN_DATE:
-        description: "指定抓取日期(YYYY-MM-DD)，留空則抓台北今天"
+        description: "指定抓取日期(YYYY-MM-DD)"
         required: false
         default: ""
       FORCE:
