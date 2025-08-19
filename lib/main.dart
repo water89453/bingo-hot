@@ -9,8 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const StatsApp());
 
-const kRemoteJsonUrl =
-    'https://water89453.github.io/bingo-hot/data/draws.json'; // 你的 Pages 路徑
+// === 主要改動：兩個候選來源（先 raw，再 pages 作為備援） ===
+const kPrimaryJsonUrl =
+    'https://raw.githubusercontent.com/water89453/bingo-hot/main/data/draws.json';
+const kFallbackJsonUrl =
+    'https://water89453.github.io/bingo-hot/data/draws.json';
+
 const _cacheKeyData = 'remote_draws_v1';
 const _cacheKeyTime = 'remote_draws_time_v1';
 
@@ -86,7 +90,6 @@ class _StatsHomeState extends State<StatsHome> {
   void initState() {
     super.initState();
     _loadCache().then((_) => _fetchRemote(showSnackbar: false));
-    // 如果想要定時自動更新（例如每 2 分鐘檢查一次）
     _autoTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       _fetchRemote(showSnackbar: false);
     });
@@ -128,6 +131,38 @@ class _StatsHomeState extends State<StatsHome> {
 
   // ------------------ Network ------------------
 
+  // 依序嘗試多個來源；第一個成功就用它
+  Future<String> _downloadJsonFromCandidates(List<String> urls) async {
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    Exception? lastErr;
+    for (final base in urls) {
+      try {
+        final uri = Uri.parse('$base?t=$ts');
+        final resp = await http
+            .get(uri, headers: {
+              // raw 服務偶爾需要顯式 UA；加上也無害
+              'User-Agent': 'bingo-hot-app/1.0'
+            })
+            .timeout(const Duration(seconds: 20));
+        if (resp.statusCode == 200) {
+          final body = resp.body.trim();
+          // 確認真的是 JSON 陣列
+          final decoded = jsonDecode(body);
+          if (decoded is List) {
+            return body;
+          } else {
+            throw Exception('格式錯誤：非 JSON 陣列');
+          }
+        } else {
+          throw Exception('HTTP ${resp.statusCode}');
+        }
+      } catch (e) {
+        lastErr = Exception('來源 $base 失敗：$e');
+      }
+    }
+    throw lastErr ?? Exception('所有來源皆失敗');
+  }
+
   Future<void> _fetchRemote({bool showSnackbar = true}) async {
     if (!mounted) return;
     setState(() {
@@ -136,13 +171,11 @@ class _StatsHomeState extends State<StatsHome> {
     });
 
     try {
-      // 加上 cache buster，避免瀏覽器快取
-      final uri = Uri.parse('$kRemoteJsonUrl?t=${DateTime.now().millisecondsSinceEpoch}');
-      final resp = await http.get(uri).timeout(const Duration(seconds: 15));
-      if (resp.statusCode != 200) {
-        throw Exception('HTTP ${resp.statusCode}');
-      }
-      final body = resp.body.trim();
+      final body = await _downloadJsonFromCandidates([
+        kPrimaryJsonUrl,  // raw（優先）
+        kFallbackJsonUrl, // pages（備援）
+      ]);
+
       final list = (jsonDecode(body) as List)
           .map((e) => Draw.fromJson(Map<String, dynamic>.from(e)))
           .toList();
@@ -162,7 +195,6 @@ class _StatsHomeState extends State<StatsHome> {
         );
       }
     } catch (e) {
-      // 失敗時保留快取
       setState(() => _error = '更新失敗：$e');
       if (showSnackbar && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -216,7 +248,6 @@ class _StatsHomeState extends State<StatsHome> {
     final superFreq = _countSuperFreq();
     final totalBalls = issues * 20;
 
-    // 機率（0~1）
     final probs = List<double>.generate(
       81,
       (i) => i == 0 ? 0.0 : _safeRatio(freq[i] ?? 0, totalBalls),
