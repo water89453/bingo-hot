@@ -2,19 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:fl_chart/fl_chart.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const StatsApp());
 
-// === 主要改動：兩個候選來源（先 raw，再 pages 作為備援） ===
-const kPrimaryJsonUrl =
-    'https://raw.githubusercontent.com/water89453/bingo-hot/main/data/draws.json';
-const kFallbackJsonUrl =
+/// 你的 GitHub Pages 上的 JSON（workflow 會不斷更新）
+const kRemoteJsonUrl =
     'https://water89453.github.io/bingo-hot/data/draws.json';
 
+/// 本地快取 key
 const _cacheKeyData = 'remote_draws_v1';
 const _cacheKeyTime = 'remote_draws_time_v1';
 
@@ -45,18 +43,42 @@ class Draw {
     required this.superBall,
   });
 
+  /// 允許 balls 為 List 或 String，像 "01,02 ..."/"01 02 ..."
+  static List<int> _parseBalls(dynamic v) {
+    if (v is List) {
+      return v
+          .map((e) => int.tryParse('$e'))
+          .whereType<int>()
+          .where((x) => x >= 1 && x <= 80)
+          .toSet()
+          .toList()
+        ..sort();
+    }
+    if (v is String) {
+      final nums = RegExp(r'\d+')
+          .allMatches(v)
+          .map((m) => int.tryParse(m.group(0)!))
+          .whereType<int>()
+          .where((x) => x >= 1 && x <= 80)
+          .toSet()
+          .toList()
+        ..sort();
+      return nums;
+    }
+    return <int>[];
+  }
+
   factory Draw.fromJson(Map<String, dynamic> json) {
-    final rawBalls = (json['balls'] as List).map((e) => int.tryParse('$e'))
-        .whereType<int>()
-        .toList();
-    final set = rawBalls.where((v) => v >= 1 && v <= 80).toSet();
-    final balls = set.toList()..sort();
-    final sup = int.tryParse('${json['super']}') ?? (balls.isNotEmpty ? balls.last : 0);
+    final balls = _parseBalls(json['balls']);
+    final supRaw = json['super'] ?? json['superBall'] ?? json['super_ball'];
+    final sup =
+        (int.tryParse('$supRaw') ?? (balls.isNotEmpty ? balls.last : 0))
+            .clamp(1, 80);
     return Draw(
-      period: '${json['period'] ?? ''}',
-      date: '${json['date'] ?? ''}',
+      period: '${json['period'] ?? json['drawTerm'] ?? ''}',
+      date: '${json['date'] ?? json['dDate'] ?? ''}',
       balls: balls,
-      superBall: sup.clamp(1, 80),
+      superBall: sup,
     );
   }
 
@@ -84,12 +106,11 @@ class _StatsHomeState extends State<StatsHome> {
 
   Timer? _autoTimer; // 可選：定時重新抓
 
-  // ------------------ init / dispose ------------------
-
   @override
   void initState() {
     super.initState();
     _loadCache().then((_) => _fetchRemote(showSnackbar: false));
+    // 若希望背景自動更新（每 2 分鐘檢查）
     _autoTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       _fetchRemote(showSnackbar: false);
     });
@@ -114,7 +135,8 @@ class _StatsHomeState extends State<StatsHome> {
             .toList();
         setState(() {
           _draws = list;
-          _lastSync = ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
+          _lastSync =
+              ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
         });
       }
     } catch (_) {}
@@ -129,39 +151,7 @@ class _StatsHomeState extends State<StatsHome> {
     } catch (_) {}
   }
 
-  // ------------------ Network ------------------
-
-  // 依序嘗試多個來源；第一個成功就用它
-  Future<String> _downloadJsonFromCandidates(List<String> urls) async {
-    final ts = DateTime.now().millisecondsSinceEpoch;
-    Exception? lastErr;
-    for (final base in urls) {
-      try {
-        final uri = Uri.parse('$base?t=$ts');
-        final resp = await http
-            .get(uri, headers: {
-              // raw 服務偶爾需要顯式 UA；加上也無害
-              'User-Agent': 'bingo-hot-app/1.0'
-            })
-            .timeout(const Duration(seconds: 20));
-        if (resp.statusCode == 200) {
-          final body = resp.body.trim();
-          // 確認真的是 JSON 陣列
-          final decoded = jsonDecode(body);
-          if (decoded is List) {
-            return body;
-          } else {
-            throw Exception('格式錯誤：非 JSON 陣列');
-          }
-        } else {
-          throw Exception('HTTP ${resp.statusCode}');
-        }
-      } catch (e) {
-        lastErr = Exception('來源 $base 失敗：$e');
-      }
-    }
-    throw lastErr ?? Exception('所有來源皆失敗');
-  }
+  // ------------------ Network（強韌版本） ------------------
 
   Future<void> _fetchRemote({bool showSnackbar = true}) async {
     if (!mounted) return;
@@ -170,18 +160,64 @@ class _StatsHomeState extends State<StatsHome> {
       _error = null;
     });
 
-    try {
-      final body = await _downloadJsonFromCandidates([
-        kPrimaryJsonUrl,  // raw（優先）
-        kFallbackJsonUrl, // pages（備援）
-      ]);
+    Future<List<Draw>> _tryOnce() async {
+      final uri = Uri.parse(
+          '$kRemoteJsonUrl?t=${DateTime.now().millisecondsSinceEpoch}');
+      final resp = await http.get(uri, headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      }).timeout(const Duration(seconds: 15));
 
-      final list = (jsonDecode(body) as List)
-          .map((e) => Draw.fromJson(Map<String, dynamic>.from(e)))
+      if (resp.statusCode != 200) {
+        throw Exception('HTTP ${resp.statusCode}');
+      }
+
+      final body = resp.body.trim();
+
+      // 防止抓到 HTML（部署中/404 重導等）
+      if (body.startsWith('<!DOCTYPE') || body.startsWith('<html')) {
+        throw Exception('遠端回傳 HTML（可能暫時性 404/部署中）');
+      }
+
+      final decoded = jsonDecode(body);
+      dynamic rows;
+
+      if (decoded is List) {
+        rows = decoded;
+      } else if (decoded is Map) {
+        // 兼容 { data: [...] } / { draws: [...] }
+        if (decoded['data'] is List) {
+          rows = decoded['data'];
+        } else if (decoded['draws'] is List) {
+          rows = decoded['draws'];
+        } else {
+          throw Exception('遠端 JSON 格式錯誤：${decoded.runtimeType}');
+        }
+      } else {
+        throw Exception('遠端 JSON 非預期型別：${decoded.runtimeType}');
+      }
+
+      final list = (rows as List)
+          .where((e) => e is Map) // 安全
+          .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e))
+          .map(Draw.fromJson)
+          .where((d) => d.period.isNotEmpty && d.balls.isNotEmpty)
           .toList();
 
-      // 依照期別排序（如果遠端已經是新到舊可省略）
+      // 新到舊
       list.sort((a, b) => b.period.compareTo(a.period));
+      return list;
+    }
+
+    try {
+      List<Draw> list;
+      try {
+        list = await _tryOnce();
+      } catch (_) {
+        // Pages/CDN 同步中的短暫錯誤，等 1 秒重試一次
+        await Future.delayed(const Duration(seconds: 1));
+        list = await _tryOnce();
+      }
 
       setState(() {
         _draws = list;
@@ -248,6 +284,7 @@ class _StatsHomeState extends State<StatsHome> {
     final superFreq = _countSuperFreq();
     final totalBalls = issues * 20;
 
+    // 機率（0~1）
     final probs = List<double>.generate(
       81,
       (i) => i == 0 ? 0.0 : _safeRatio(freq[i] ?? 0, totalBalls),
@@ -298,7 +335,7 @@ class _StatsHomeState extends State<StatsHome> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 上方資訊 + 超級獎號 Top 晶片列（可水平捲動）
+          // 上方資訊 + 超級獎號 Top 晶片列
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
             child: Column(
@@ -319,7 +356,8 @@ class _StatsHomeState extends State<StatsHome> {
                               .map((e) => DropdownMenuItem(
                                   value: e, child: Text('近 $e 期')))
                               .toList(),
-                          onChanged: (v) => setState(() => sampleSize = v ?? 100),
+                          onChanged: (v) =>
+                              setState(() => sampleSize = v ?? 100),
                         ),
                       ],
                     ),
@@ -328,7 +366,9 @@ class _StatsHomeState extends State<StatsHome> {
                       style: const TextStyle(fontSize: 12),
                     ),
                     if (_error != null)
-                      Text('$_error', style: const TextStyle(fontSize: 12, color: Colors.red)),
+                      Text('$_error',
+                          style: const TextStyle(
+                              fontSize: 12, color: Colors.red)),
                   ],
                 ),
                 const SizedBox(height: 6),
