@@ -3,8 +3,9 @@ name: Deploy Flutter Web to GitHub Pages
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
-# ✅ 關鍵：讓 GITHUB_TOKEN 具有寫入權限，才能推 gh-pages
+# 需要寫入權限推到 gh-pages
 permissions:
   contents: write
 
@@ -29,6 +30,13 @@ jobs:
           flutter build web --release \
             --pwa-strategy=offline-first \
             --base-href "/bingo-hot/"
+
+      # ⭐ 關鍵：把最新的 draws.json 放到發佈資料夾（在 build 之後做）
+      - name: Copy draws.json
+        run: |
+          mkdir -p build/web/data
+          cp -f data/draws.json build/web/data/draws.json
+          ls -lah build/web/data
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
