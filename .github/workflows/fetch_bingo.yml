@@ -1,20 +1,19 @@
 name: fetch
 
 on:
+  schedule:
+    # 每 5 分鐘觸發一次（UTC）。是否執行由下方 gate 腳本決定（台北時區 + 邊緣分鐘）。
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
-      force:
-        description: 'Run now (true/false)'
+      OPEN_DATE:
+        description: "指定抓取日期(YYYY-MM-DD)，留空則抓台北今天"
         required: false
-        default: 'false'
-      endpoint:
-        description: 'API endpoint (e.g. /api/Draw/GetBingoAwardList)'
+        default: ""
+      FORCE:
+        description: "true=無視時間門檻立即跑"
         required: false
-        default: ''
-      date:
-        description: 'Open date YYYY-MM-DD (empty = today)'
-        required: false
-        default: ''
+        default: "false"
 
 permissions:
   contents: write
@@ -22,6 +21,9 @@ permissions:
 jobs:
   fetch:
     runs-on: ubuntu-24.04
+    env:
+      OPEN_DATE: ${{ github.event.inputs.OPEN_DATE }}
+      FORCE: ${{ github.event.inputs.FORCE }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,18 +35,24 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install deps
+      - name: Install deps (if any)
         run: npm ci --no-audit --no-fund
 
-      - name: Decide to run this minute
-        id: decide
-        env:
-          force: ${{ inputs.force }}
+      - name: Decide to run this minute (Taipei window + 5-min edge)
+        id: when
         shell: bash
         run: |
-          force="${force}"
+          force="${FORCE:-false}"
+
           if [[ "$force" == "true" ]]; then
-            echo "👉 Force mode: always run"
+            echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # 以台北日曆判斷
+          TZ=Asia/Taipei now_d=$(date +%F)
+          if [[ -n "${OPEN_DATE}" && "${OPEN_DATE}" != "${now_d}" ]]; then
+            echo "backfill for ${OPEN_DATE} (now=${now_d}, Taipei) -> run"
             echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -54,15 +62,11 @@ jobs:
           hhmm="${hour}${minute}"
 
           in_window=false
-          if [[ "$hhmm" > "0704" && "$hhmm" < "2356" ]]; then
-            in_window=true
-          fi
+          [[ "$hhmm" > "0704" && "$hhmm" < "2356" ]] && in_window=true
 
           mod=$((10#$minute % 5))
           on_edge=false
-          if [[ $mod -eq 1 || $mod -eq 2 ]]; then
-            on_edge=true
-          fi
+          [[ $mod -eq 1 || $mod -eq 2 ]] && on_edge=true
 
           echo "now(Taipei)=$hour:$minute in_window=$in_window on_edge=$on_edge"
           if [[ "$in_window" == "true" && "$on_edge" == "true" ]]; then
@@ -71,37 +75,40 @@ jobs:
             echo "run_this_minute=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run fetch script
-        if: steps.decide.outputs.run_this_minute == 'true'
-        env:
-          # 注意：這裡是正確的 Web 網域拼字
-          BINGO_API_BASE: https://api.taiwanlottery.com/TLCAPIWeb
-          OPEN_DATE: ${{ inputs.date }}
-          ENDPOINT:  ${{ inputs.endpoint }}
-          PAGE_SIZE: 50
-          MAX_PAGES: 20
-        run: node scripts/fetch_bingo.mjs
-
-      - name: Show last 5 rows
-        if: steps.decide.outputs.run_this_minute == 'true'
+      - name: Set OPEN_DATE to Taipei today if empty
+        if: steps.when.outputs.run_this_minute == 'true'
         shell: bash
         run: |
-          if command -v jq >/dev/null 2>&1; then
-            echo "Last 5 rows of web/data/draws.json:"
-            tail -n +1 web/data/draws.json | jq '.[-5:]'
-          fi
-
-      - name: Commit & push if changed
-        if: steps.decide.outputs.run_this_minute == 'true'
-        shell: bash
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if ! git diff --quiet -- web/data/draws.json; then
-            git add web/data/draws.json
-            git commit -m "chore(data): update draws.json [skip ci]"
-            git push
-            echo "Pushed updated JSON."
+          if [[ -z "${OPEN_DATE}" ]]; then
+            TZ=Asia/Taipei echo "OPEN_DATE=$(date +%F)" >> $GITHUB_ENV
           else
-            echo "No changes to draws.json."
+            echo "OPEN_DATE=${OPEN_DATE}" >> $GITHUB_ENV
+          fi
+          echo "Resolved OPEN_DATE=${OPEN_DATE:-$(date +%F)} (Taipei)"
+
+      - name: Fetch Bingo via API
+        if: steps.when.outputs.run_this_minute == 'true'
+        env:
+          OPEN_DATE: ${{ env.OPEN_DATE }}
+        run: node scripts/fetch_bingo_api.mjs
+
+      - name: Upload last fetch artifacts
+        if: steps.when.outputs.run_this_minute == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: last-fetch-json
+          path: artifacts/last_fetch/*.json
+          if-no-files-found: warn
+
+      - name: Commit & Push changes
+        if: steps.when.outputs.run_this_minute == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git add -A
+            git commit -m "chore(fetch): update draws.json for ${OPEN_DATE}"
+            git push
+          else
+            echo "No changes to commit."
           fi
