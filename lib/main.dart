@@ -8,11 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const StatsApp());
 
-/// 你的 GitHub Pages 上的 JSON（workflow 會不斷更新）
+/// 你的 GitHub Pages 上的 JSON（已由 workflow 發佈到 gh-pages）
 const kRemoteJsonUrl =
     'https://water89453.github.io/bingo-hot/data/draws.json';
 
-/// 本地快取 key
 const _cacheKeyData = 'remote_draws_v1';
 const _cacheKeyTime = 'remote_draws_time_v1';
 
@@ -29,12 +28,12 @@ class StatsApp extends StatelessWidget {
   }
 }
 
-/// 一期資料：20 顆號碼 + 超級獎號（最後一顆）
+/// 一期資料：20 顆號碼 + 超級獎號
 class Draw {
-  final String period;
-  final String date; // 可能是空字串
-  final List<int> balls; // 20 顆（1..80，不重複、排序）
-  final int superBall; // 1..80
+  final String period;   // 期別（字串存、以數字排序）
+  final String date;     // 可能為空字串
+  final List<int> balls; // 20 顆（1..80、不重複、排序）
+  final int superBall;   // 1..80
 
   const Draw({
     required this.period,
@@ -43,40 +42,26 @@ class Draw {
     required this.superBall,
   });
 
-  /// 允許 balls 為 List 或 String，像 "01,02 ..."/"01 02 ..."
-  static List<int> _parseBalls(dynamic v) {
-    if (v is List) {
-      return v
-          .map((e) => int.tryParse('$e'))
-          .whereType<int>()
-          .where((x) => x >= 1 && x <= 80)
-          .toSet()
-          .toList()
-        ..sort();
-    }
-    if (v is String) {
-      final nums = RegExp(r'\d+')
-          .allMatches(v)
-          .map((m) => int.tryParse(m.group(0)!))
-          .whereType<int>()
-          .where((x) => x >= 1 && x <= 80)
-          .toSet()
-          .toList()
-        ..sort();
-      return nums;
-    }
-    return <int>[];
-  }
-
+  /// 兼容 {period, balls, super} 與 {term, numbers, super}
   factory Draw.fromJson(Map<String, dynamic> json) {
-    final balls = _parseBalls(json['balls']);
-    final supRaw = json['super'] ?? json['superBall'] ?? json['super_ball'];
-    final sup =
-        (int.tryParse('$supRaw') ?? (balls.isNotEmpty ? balls.last : 0))
-            .clamp(1, 80);
+    final period = '${json['period'] ?? json['term'] ?? ''}'.trim();
+    final date = '${json['date'] ?? ''}'.trim();
+
+    final rawList = (json['balls'] ?? json['numbers'] ?? []) as List? ?? const [];
+    final balls = rawList
+        .map((e) => int.tryParse('$e'))
+        .whereType<int>()
+        .where((n) => n >= 1 && n <= 80)
+        .toSet()
+        .toList()
+      ..sort();
+
+    final supParsed = int.tryParse('${json['super'] ?? ''}');
+    final sup = (supParsed ?? (balls.isNotEmpty ? balls.last : 0)).clamp(1, 80);
+
     return Draw(
-      period: '${json['period'] ?? json['drawTerm'] ?? ''}',
-      date: '${json['date'] ?? json['dDate'] ?? ''}',
+      period: period,
+      date: date,
       balls: balls,
       superBall: sup,
     );
@@ -104,13 +89,13 @@ class _StatsHomeState extends State<StatsHome> {
   String? _error;
   DateTime? _lastSync;
 
-  Timer? _autoTimer; // 可選：定時重新抓
+  Timer? _autoTimer;
 
   @override
   void initState() {
     super.initState();
     _loadCache().then((_) => _fetchRemote(showSnackbar: false));
-    // 若希望背景自動更新（每 2 分鐘檢查）
+    // 可選：每 2 分鐘嘗試刷新一次
     _autoTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       _fetchRemote(showSnackbar: false);
     });
@@ -135,8 +120,7 @@ class _StatsHomeState extends State<StatsHome> {
             .toList();
         setState(() {
           _draws = list;
-          _lastSync =
-              ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
+          _lastSync = ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
         });
       }
     } catch (_) {}
@@ -151,7 +135,7 @@ class _StatsHomeState extends State<StatsHome> {
     } catch (_) {}
   }
 
-  // ------------------ Network（強韌版本） ------------------
+  // ------------------ Network ------------------
 
   Future<void> _fetchRemote({bool showSnackbar = true}) async {
     if (!mounted) return;
@@ -160,64 +144,33 @@ class _StatsHomeState extends State<StatsHome> {
       _error = null;
     });
 
-    Future<List<Draw>> _tryOnce() async {
+    try {
+      // 加上 cache buster 避免 CDN/瀏覽器快取
       final uri = Uri.parse(
-          '$kRemoteJsonUrl?t=${DateTime.now().millisecondsSinceEpoch}');
-      final resp = await http.get(uri, headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-      }).timeout(const Duration(seconds: 15));
-
+        '$kRemoteJsonUrl?t=${DateTime.now().millisecondsSinceEpoch}',
+      );
+      final resp = await http.get(uri).timeout(const Duration(seconds: 20));
       if (resp.statusCode != 200) {
         throw Exception('HTTP ${resp.statusCode}');
       }
 
       final body = resp.body.trim();
-
-      // 防止抓到 HTML（部署中/404 重導等）
-      if (body.startsWith('<!DOCTYPE') || body.startsWith('<html')) {
-        throw Exception('遠端回傳 HTML（可能暫時性 404/部署中）');
+      if (body.isEmpty) {
+        throw Exception('空內容');
       }
 
       final decoded = jsonDecode(body);
-      dynamic rows;
-
-      if (decoded is List) {
-        rows = decoded;
-      } else if (decoded is Map) {
-        // 兼容 { data: [...] } / { draws: [...] }
-        if (decoded['data'] is List) {
-          rows = decoded['data'];
-        } else if (decoded['draws'] is List) {
-          rows = decoded['draws'];
-        } else {
-          throw Exception('遠端 JSON 格式錯誤：${decoded.runtimeType}');
-        }
-      } else {
-        throw Exception('遠端 JSON 非預期型別：${decoded.runtimeType}');
+      if (decoded is! List) {
+        throw Exception('JSON 根節點不是 List');
       }
 
-      final list = (rows as List)
-          .where((e) => e is Map) // 安全
-          .map<Map<String, dynamic>>((e) => Map<String, dynamic>.from(e))
-          .map(Draw.fromJson)
-          .where((d) => d.period.isNotEmpty && d.balls.isNotEmpty)
+      final list = decoded
+          .map((e) => Draw.fromJson(Map<String, dynamic>.from(e)))
           .toList();
 
-      // 新到舊
-      list.sort((a, b) => b.period.compareTo(a.period));
-      return list;
-    }
-
-    try {
-      List<Draw> list;
-      try {
-        list = await _tryOnce();
-      } catch (_) {
-        // Pages/CDN 同步中的短暫錯誤，等 1 秒重試一次
-        await Future.delayed(const Duration(seconds: 1));
-        list = await _tryOnce();
-      }
+      // 以「數字」比較期別，避免字串比較錯序
+      list.sort((a, b) =>
+          (int.tryParse(b.period) ?? 0).compareTo(int.tryParse(a.period) ?? 0));
 
       setState(() {
         _draws = list;
@@ -356,8 +309,7 @@ class _StatsHomeState extends State<StatsHome> {
                               .map((e) => DropdownMenuItem(
                                   value: e, child: Text('近 $e 期')))
                               .toList(),
-                          onChanged: (v) =>
-                              setState(() => sampleSize = v ?? 100),
+                          onChanged: (v) => setState(() => sampleSize = v ?? 100),
                         ),
                       ],
                     ),
@@ -367,8 +319,8 @@ class _StatsHomeState extends State<StatsHome> {
                     ),
                     if (_error != null)
                       Text('$_error',
-                          style: const TextStyle(
-                              fontSize: 12, color: Colors.red)),
+                          style:
+                              const TextStyle(fontSize: 12, color: Colors.red)),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -392,7 +344,7 @@ class _StatsHomeState extends State<StatsHome> {
           Expanded(
             child: GridView.count(
               padding: const EdgeInsets.all(8),
-              crossAxisCount: 5, // 手機較易讀；平板可調 8
+              crossAxisCount: 5, // 手機較易讀；平板可調
               childAspectRatio: 1.2,
               children: [
                 for (int i = 1; i <= 80; i++)
@@ -433,7 +385,7 @@ class _StatsHomeState extends State<StatsHome> {
               ],
             ),
           ),
-          // 長條圖
+          // 機率長條圖
           SizedBox(
             height: 220,
             child: Padding(
