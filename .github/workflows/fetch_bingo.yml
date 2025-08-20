@@ -2,22 +2,25 @@ name: fetch
 
 on:
   schedule:
-    # 台北 07:00–23:59 => UTC 23:00–15:59
-    - cron: "*/5 23 * * *"     # UTC 23:00–23:55  -> 台北 07:00–07:55
-    - cron: "*/5 0-15 * * *"   # UTC 00:00–15:55  -> 台北 08:00–23:55
+    # 每 5 分鐘跑一次（UTC）
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       OPEN_DATE:
-        description: "指定抓取日期(YYYY-MM-DD)"
+        description: "指定抓取日期 (YYYY-MM-DD)，留空=今天(台北時區)"
         required: false
         default: ""
       FORCE:
-        description: "true=無視時間門檻立即跑"
+        description: "true=無視時間門檻立刻跑"
         required: false
         default: "false"
 
 permissions:
   contents: write
+
+concurrency:
+  group: fetch-bingo
+  cancel-in-progress: false
 
 jobs:
   fetch:
@@ -25,8 +28,9 @@ jobs:
     env:
       OPEN_DATE: ${{ github.event.inputs.OPEN_DATE }}
       FORCE: ${{ github.event.inputs.FORCE }}
+
     steps:
-      - name: Checkout
+      - name: Checkout (full)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -37,31 +41,22 @@ jobs:
           node-version: 20
 
       - name: Install deps (if any)
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund || true
 
-      - name: Decide to run this minute (Taipei window + 5-min edge)
-        id: when
+      - name: Decide whether to run this minute (Taipei gating)
+        id: gate
         shell: bash
         run: |
           force="${FORCE:-false}"
-
           if [[ "$force" == "true" ]]; then
             echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          # 以台北日曆判斷
-          TZ=Asia/Taipei now_d=$(date +%F)
-          if [[ -n "${OPEN_DATE}" && "${OPEN_DATE}" != "${now_d}" ]]; then
-            echo "backfill for ${OPEN_DATE} (now=${now_d}, Taipei) -> run"
-            echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
+          # 今天才套時間門檻：07:05–23:55 的「+1 或 +2 分」
           TZ=Asia/Taipei hour=$(date +%H)
           TZ=Asia/Taipei minute=$(date +%M)
           hhmm="${hour}${minute}"
-
           in_window=false
           [[ "$hhmm" > "0704" && "$hhmm" < "2356" ]] && in_window=true
 
@@ -69,47 +64,38 @@ jobs:
           on_edge=false
           [[ $mod -eq 1 || $mod -eq 2 ]] && on_edge=true
 
-          echo "now(Taipei)=$hour:$minute in_window=$in_window on_edge=$on_edge"
           if [[ "$in_window" == "true" && "$on_edge" == "true" ]]; then
             echo "run_this_minute=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_this_minute=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set OPEN_DATE to Taipei today if empty
-        if: steps.when.outputs.run_this_minute == 'true'
-        shell: bash
+      - name: Fetch Bingo (API, with pagination)
+        if: steps.gate.outputs.run_this_minute == 'true'
         run: |
-          if [[ -z "${OPEN_DATE}" ]]; then
-            TZ=Asia/Taipei echo "OPEN_DATE=$(date +%F)" >> $GITHUB_ENV
-          else
-            echo "OPEN_DATE=${OPEN_DATE}" >> $GITHUB_ENV
-          fi
-          echo "Resolved OPEN_DATE=${OPEN_DATE:-$(date +%F)} (Taipei)"
+          echo "OPEN_DATE=${OPEN_DATE:-<auto>}"
+          node --version
+          mkdir -p data
 
-      - name: Fetch Bingo via API
-        if: steps.when.outputs.run_this_minute == 'true'
-        env:
-          OPEN_DATE: ${{ env.OPEN_DATE }}
-        run: node scripts/fetch_bingo_api.mjs
+          # 這是你 repo 裡的抓取腳本：scripts/fetch_bingo_api.mjs
+          # 會處理分頁並輸出到 data/draws.json
+          node scripts/fetch_bingo_api.mjs
 
-      - name: Upload last fetch artifacts
-        if: steps.when.outputs.run_this_minute == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: last-fetch-json
-          path: artifacts/last_fetch/*.json
-          if-no-files-found: warn
+          # 簡單校驗 JSON
+          test -s data/draws.json
+          head -c 2 data/draws.json | grep -q '\['
 
-      - name: Commit & Push changes
-        if: steps.when.outputs.run_this_minute == 'true'
+      - name: Commit & push if changed
+        if: steps.gate.outputs.run_this_minute == 'true'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git add -A
-            git commit -m "chore(fetch): update draws.json for ${OPEN_DATE}"
-            git push
-          else
-            echo "No changes to commit."
+          set -e
+          if git diff --quiet -- data/draws.json; then
+            echo "No changes in data/draws.json"
+            exit 0
           fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/draws.json
+          git commit -m "chore(fetch): update draws.json ($(date -u +'%F %T') UTC)"
+          git push origin HEAD:main
