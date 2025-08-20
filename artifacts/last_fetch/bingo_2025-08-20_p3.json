@@ -2,8 +2,1370 @@
   "rtCode": 0,
   "rtMsg": null,
   "content": {
-    "totalSize": 149,
+    "totalSize": 155,
     "bingoQueryResult": [
+      {
+        "winNoOnly": true,
+        "drawTerm": 114046948,
+        "dDate": "0001-01-01T00:00:00",
+        "bigShowOrder": [
+          "03",
+          "04",
+          "06",
+          "08",
+          "14",
+          "15",
+          "25",
+          "28",
+          "32",
+          "40",
+          "46",
+          "48",
+          "51",
+          "59",
+          "61",
+          "68",
+          "70",
+          "71",
+          "78",
+          "80"
+        ],
+        "openShowOrder": [
+          "68",
+          "28",
+          "25",
+          "71",
+          "15",
+          "03",
+          "61",
+          "32",
+          "08",
+          "46",
+          "78",
+          "59",
+          "48",
+          "04",
+          "14",
+          "51",
+          "06",
+          "40",
+          "80",
+          "70"
+        ],
+        "bullEyeTop": "70",
+        "highLowTop": "－",
+        "oddEvenTop": "雙",
+        "sellAmount": null,
+        "totalWinners": null,
+        "totalAmount": null,
+        "oddEven": null,
+        "oddEvenWinners": null,
+        "oddEvenDividend": null,
+        "highLow": null,
+        "highLowWinners": null,
+        "highLowDividend": null,
+        "bullEye": null,
+        "bullEyeWinners": null,
+        "bullEyeDividend": null,
+        "category": 0,
+        "starDetails": [
+          {
+            "winners": 0,
+            "dividend": 5000000
+          },
+          {
+            "winners": 0,
+            "dividend": 250000
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 0,
+            "dividend": 2500
+          },
+          {
+            "winners": 1,
+            "dividend": 250
+          },
+          {
+            "winners": 11,
+            "dividend": 25
+          },
+          {
+            "winners": 14,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 1000000
+          },
+          {
+            "winners": 0,
+            "dividend": 100000
+          },
+          {
+            "winners": 0,
+            "dividend": 3000
+          },
+          {
+            "winners": 1,
+            "dividend": 500
+          },
+          {
+            "winners": 18,
+            "dividend": 100
+          },
+          {
+            "winners": 34,
+            "dividend": 25
+          },
+          {
+            "winners": 38,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 500000
+          },
+          {
+            "winners": 0,
+            "dividend": 20000
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 8,
+            "dividend": 200
+          },
+          {
+            "winners": 21,
+            "dividend": 25
+          },
+          {
+            "winners": 23,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 80000
+          },
+          {
+            "winners": 0,
+            "dividend": 3000
+          },
+          {
+            "winners": 4,
+            "dividend": 300
+          },
+          {
+            "winners": 27,
+            "dividend": 50
+          },
+          {
+            "winners": 137,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 2,
+            "dividend": 1000
+          },
+          {
+            "winners": 54,
+            "dividend": 200
+          },
+          {
+            "winners": 243,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 7500
+          },
+          {
+            "winners": 8,
+            "dividend": 500
+          },
+          {
+            "winners": 83,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 6,
+            "dividend": 100
+          },
+          {
+            "winners": 43,
+            "dividend": 25
+          },
+          {
+            "winners": 5,
+            "dividend": 500
+          },
+          {
+            "winners": 58,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 75
+          },
+          {
+            "winners": 11,
+            "dividend": 25
+          },
+          {
+            "winners": 80,
+            "dividend": 50
+          }
+        ]
+      },
+      {
+        "winNoOnly": true,
+        "drawTerm": 114046947,
+        "dDate": "0001-01-01T00:00:00",
+        "bigShowOrder": [
+          "12",
+          "14",
+          "20",
+          "24",
+          "26",
+          "28",
+          "39",
+          "40",
+          "42",
+          "46",
+          "48",
+          "49",
+          "52",
+          "56",
+          "64",
+          "69",
+          "70",
+          "71",
+          "74",
+          "79"
+        ],
+        "openShowOrder": [
+          "52",
+          "40",
+          "74",
+          "26",
+          "20",
+          "70",
+          "12",
+          "24",
+          "56",
+          "42",
+          "69",
+          "79",
+          "64",
+          "39",
+          "28",
+          "46",
+          "48",
+          "71",
+          "49",
+          "14"
+        ],
+        "bullEyeTop": "14",
+        "highLowTop": "－",
+        "oddEvenTop": "雙",
+        "sellAmount": null,
+        "totalWinners": null,
+        "totalAmount": null,
+        "oddEven": null,
+        "oddEvenWinners": null,
+        "oddEvenDividend": null,
+        "highLow": null,
+        "highLowWinners": null,
+        "highLowDividend": null,
+        "bullEye": null,
+        "bullEyeWinners": null,
+        "bullEyeDividend": null,
+        "category": 0,
+        "starDetails": [
+          {
+            "winners": 0,
+            "dividend": 5000000
+          },
+          {
+            "winners": 0,
+            "dividend": 250000
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 0,
+            "dividend": 2500
+          },
+          {
+            "winners": 6,
+            "dividend": 250
+          },
+          {
+            "winners": 15,
+            "dividend": 25
+          },
+          {
+            "winners": 38,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 1000000
+          },
+          {
+            "winners": 0,
+            "dividend": 100000
+          },
+          {
+            "winners": 0,
+            "dividend": 3000
+          },
+          {
+            "winners": 1,
+            "dividend": 500
+          },
+          {
+            "winners": 19,
+            "dividend": 100
+          },
+          {
+            "winners": 43,
+            "dividend": 25
+          },
+          {
+            "winners": 68,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 500000
+          },
+          {
+            "winners": 0,
+            "dividend": 20000
+          },
+          {
+            "winners": 1,
+            "dividend": 1000
+          },
+          {
+            "winners": 9,
+            "dividend": 200
+          },
+          {
+            "winners": 34,
+            "dividend": 25
+          },
+          {
+            "winners": 34,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 80000
+          },
+          {
+            "winners": 0,
+            "dividend": 3000
+          },
+          {
+            "winners": 1,
+            "dividend": 300
+          },
+          {
+            "winners": 38,
+            "dividend": 50
+          },
+          {
+            "winners": 125,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 4,
+            "dividend": 1000
+          },
+          {
+            "winners": 34,
+            "dividend": 200
+          },
+          {
+            "winners": 253,
+            "dividend": 25
+          },
+          {
+            "winners": 1,
+            "dividend": 7500
+          },
+          {
+            "winners": 6,
+            "dividend": 500
+          },
+          {
+            "winners": 74,
+            "dividend": 50
+          },
+          {
+            "winners": 5,
+            "dividend": 1000
+          },
+          {
+            "winners": 2,
+            "dividend": 100
+          },
+          {
+            "winners": 49,
+            "dividend": 25
+          },
+          {
+            "winners": 5,
+            "dividend": 500
+          },
+          {
+            "winners": 49,
+            "dividend": 50
+          },
+          {
+            "winners": 2,
+            "dividend": 75
+          },
+          {
+            "winners": 3,
+            "dividend": 25
+          },
+          {
+            "winners": 2,
+            "dividend": 50
+          }
+        ]
+      },
+      {
+        "winNoOnly": true,
+        "drawTerm": 114046946,
+        "dDate": "0001-01-01T00:00:00",
+        "bigShowOrder": [
+          "03",
+          "05",
+          "07",
+          "11",
+          "13",
+          "16",
+          "23",
+          "26",
+          "30",
+          "35",
+          "36",
+          "39",
+          "46",
+          "51",
+          "55",
+          "62",
+          "64",
+          "68",
+          "72",
+          "80"
+        ],
+        "openShowOrder": [
+          "55",
+          "11",
+          "03",
+          "39",
+          "05",
+          "23",
+          "72",
+          "26",
+          "36",
+          "68",
+          "13",
+          "35",
+          "64",
+          "80",
+          "62",
+          "07",
+          "46",
+          "51",
+          "16",
+          "30"
+        ],
+        "bullEyeTop": "30",
+        "highLowTop": "－",
+        "oddEvenTop": "－",
+        "sellAmount": null,
+        "totalWinners": null,
+        "totalAmount": null,
+        "oddEven": null,
+        "oddEvenWinners": null,
+        "oddEvenDividend": null,
+        "highLow": null,
+        "highLowWinners": null,
+        "highLowDividend": null,
+        "bullEye": null,
+        "bullEyeWinners": null,
+        "bullEyeDividend": null,
+        "category": 0,
+        "starDetails": [
+          {
+            "winners": 0,
+            "dividend": 5000000
+          },
+          {
+            "winners": 0,
+            "dividend": 250000
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 0,
+            "dividend": 2500
+          },
+          {
+            "winners": 3,
+            "dividend": 250
+          },
+          {
+            "winners": 12,
+            "dividend": 25
+          },
+          {
+            "winners": 7,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 1000000
+          },
+          {
+            "winners": 0,
+            "dividend": 100000
+          },
+          {
+            "winners": 1,
+            "dividend": 3000
+          },
+          {
+            "winners": 1,
+            "dividend": 500
+          },
+          {
+            "winners": 9,
+            "dividend": 100
+          },
+          {
+            "winners": 60,
+            "dividend": 25
+          },
+          {
+            "winners": 18,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 500000
+          },
+          {
+            "winners": 0,
+            "dividend": 20000
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 12,
+            "dividend": 200
+          },
+          {
+            "winners": 26,
+            "dividend": 25
+          },
+          {
+            "winners": 25,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 80000
+          },
+          {
+            "winners": 0,
+            "dividend": 3000
+          },
+          {
+            "winners": 5,
+            "dividend": 300
+          },
+          {
+            "winners": 25,
+            "dividend": 50
+          },
+          {
+            "winners": 101,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 6,
+            "dividend": 1000
+          },
+          {
+            "winners": 43,
+            "dividend": 200
+          },
+          {
+            "winners": 261,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 7500
+          },
+          {
+            "winners": 12,
+            "dividend": 500
+          },
+          {
+            "winners": 84,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 8,
+            "dividend": 100
+          },
+          {
+            "winners": 66,
+            "dividend": 25
+          },
+          {
+            "winners": 2,
+            "dividend": 500
+          },
+          {
+            "winners": 77,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 75
+          },
+          {
+            "winners": 2,
+            "dividend": 25
+          },
+          {
+            "winners": 5,
+            "dividend": 50
+          }
+        ]
+      },
+      {
+        "winNoOnly": true,
+        "drawTerm": 114046945,
+        "dDate": "0001-01-01T00:00:00",
+        "bigShowOrder": [
+          "07",
+          "09",
+          "10",
+          "11",
+          "16",
+          "18",
+          "22",
+          "23",
+          "30",
+          "34",
+          "38",
+          "40",
+          "43",
+          "46",
+          "56",
+          "66",
+          "68",
+          "75",
+          "76",
+          "79"
+        ],
+        "openShowOrder": [
+          "43",
+          "38",
+          "79",
+          "09",
+          "34",
+          "11",
+          "56",
+          "10",
+          "46",
+          "18",
+          "23",
+          "07",
+          "16",
+          "22",
+          "40",
+          "75",
+          "76",
+          "68",
+          "66",
+          "30"
+        ],
+        "bullEyeTop": "30",
+        "highLowTop": "－",
+        "oddEvenTop": "雙",
+        "sellAmount": null,
+        "totalWinners": null,
+        "totalAmount": null,
+        "oddEven": null,
+        "oddEvenWinners": null,
+        "oddEvenDividend": null,
+        "highLow": null,
+        "highLowWinners": null,
+        "highLowDividend": null,
+        "bullEye": null,
+        "bullEyeWinners": null,
+        "bullEyeDividend": null,
+        "category": 0,
+        "starDetails": [
+          {
+            "winners": 0,
+            "dividend": 5000000
+          },
+          {
+            "winners": 0,
+            "dividend": 250000
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 0,
+            "dividend": 2500
+          },
+          {
+            "winners": 0,
+            "dividend": 250
+          },
+          {
+            "winners": 9,
+            "dividend": 25
+          },
+          {
+            "winners": 27,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 1000000
+          },
+          {
+            "winners": 0,
+            "dividend": 100000
+          },
+          {
+            "winners": 1,
+            "dividend": 3000
+          },
+          {
+            "winners": 0,
+            "dividend": 500
+          },
+          {
+            "winners": 19,
+            "dividend": 100
+          },
+          {
+            "winners": 47,
+            "dividend": 25
+          },
+          {
+            "winners": 18,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 500000
+          },
+          {
+            "winners": 1,
+            "dividend": 20000
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 7,
+            "dividend": 200
+          },
+          {
+            "winners": 20,
+            "dividend": 25
+          },
+          {
+            "winners": 30,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 80000
+          },
+          {
+            "winners": 1,
+            "dividend": 3000
+          },
+          {
+            "winners": 4,
+            "dividend": 300
+          },
+          {
+            "winners": 43,
+            "dividend": 50
+          },
+          {
+            "winners": 145,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 3,
+            "dividend": 1000
+          },
+          {
+            "winners": 44,
+            "dividend": 200
+          },
+          {
+            "winners": 321,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 7500
+          },
+          {
+            "winners": 3,
+            "dividend": 500
+          },
+          {
+            "winners": 68,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 8,
+            "dividend": 100
+          },
+          {
+            "winners": 77,
+            "dividend": 25
+          },
+          {
+            "winners": 10,
+            "dividend": 500
+          },
+          {
+            "winners": 57,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 75
+          },
+          {
+            "winners": 7,
+            "dividend": 25
+          },
+          {
+            "winners": 84,
+            "dividend": 50
+          }
+        ]
+      },
+      {
+        "winNoOnly": true,
+        "drawTerm": 114046944,
+        "dDate": "0001-01-01T00:00:00",
+        "bigShowOrder": [
+          "03",
+          "08",
+          "09",
+          "16",
+          "17",
+          "18",
+          "23",
+          "26",
+          "28",
+          "35",
+          "43",
+          "48",
+          "51",
+          "69",
+          "71",
+          "73",
+          "75",
+          "76",
+          "79",
+          "80"
+        ],
+        "openShowOrder": [
+          "03",
+          "43",
+          "17",
+          "79",
+          "76",
+          "80",
+          "35",
+          "73",
+          "26",
+          "75",
+          "28",
+          "23",
+          "16",
+          "09",
+          "18",
+          "71",
+          "51",
+          "69",
+          "08",
+          "48"
+        ],
+        "bullEyeTop": "48",
+        "highLowTop": "－",
+        "oddEvenTop": "－",
+        "sellAmount": null,
+        "totalWinners": null,
+        "totalAmount": null,
+        "oddEven": null,
+        "oddEvenWinners": null,
+        "oddEvenDividend": null,
+        "highLow": null,
+        "highLowWinners": null,
+        "highLowDividend": null,
+        "bullEye": null,
+        "bullEyeWinners": null,
+        "bullEyeDividend": null,
+        "category": 0,
+        "starDetails": [
+          {
+            "winners": 0,
+            "dividend": 5000000
+          },
+          {
+            "winners": 0,
+            "dividend": 250000
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 0,
+            "dividend": 2500
+          },
+          {
+            "winners": 3,
+            "dividend": 250
+          },
+          {
+            "winners": 27,
+            "dividend": 25
+          },
+          {
+            "winners": 13,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 1000000
+          },
+          {
+            "winners": 0,
+            "dividend": 100000
+          },
+          {
+            "winners": 1,
+            "dividend": 3000
+          },
+          {
+            "winners": 0,
+            "dividend": 500
+          },
+          {
+            "winners": 29,
+            "dividend": 100
+          },
+          {
+            "winners": 39,
+            "dividend": 25
+          },
+          {
+            "winners": 45,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 500000
+          },
+          {
+            "winners": 0,
+            "dividend": 20000
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 6,
+            "dividend": 200
+          },
+          {
+            "winners": 96,
+            "dividend": 25
+          },
+          {
+            "winners": 44,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 80000
+          },
+          {
+            "winners": 1,
+            "dividend": 3000
+          },
+          {
+            "winners": 8,
+            "dividend": 300
+          },
+          {
+            "winners": 37,
+            "dividend": 50
+          },
+          {
+            "winners": 127,
+            "dividend": 25
+          },
+          {
+            "winners": 2,
+            "dividend": 25000
+          },
+          {
+            "winners": 8,
+            "dividend": 1000
+          },
+          {
+            "winners": 76,
+            "dividend": 200
+          },
+          {
+            "winners": 219,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 7500
+          },
+          {
+            "winners": 20,
+            "dividend": 500
+          },
+          {
+            "winners": 110,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 5,
+            "dividend": 100
+          },
+          {
+            "winners": 54,
+            "dividend": 25
+          },
+          {
+            "winners": 4,
+            "dividend": 500
+          },
+          {
+            "winners": 89,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 75
+          },
+          {
+            "winners": 5,
+            "dividend": 25
+          },
+          {
+            "winners": 8,
+            "dividend": 50
+          }
+        ]
+      },
+      {
+        "winNoOnly": true,
+        "drawTerm": 114046943,
+        "dDate": "0001-01-01T00:00:00",
+        "bigShowOrder": [
+          "03",
+          "07",
+          "12",
+          "13",
+          "21",
+          "26",
+          "32",
+          "36",
+          "38",
+          "42",
+          "43",
+          "44",
+          "50",
+          "51",
+          "58",
+          "59",
+          "63",
+          "64",
+          "79",
+          "80"
+        ],
+        "openShowOrder": [
+          "03",
+          "63",
+          "42",
+          "12",
+          "07",
+          "21",
+          "64",
+          "50",
+          "59",
+          "44",
+          "79",
+          "36",
+          "38",
+          "13",
+          "58",
+          "32",
+          "80",
+          "26",
+          "43",
+          "51"
+        ],
+        "bullEyeTop": "51",
+        "highLowTop": "－",
+        "oddEvenTop": "－",
+        "sellAmount": null,
+        "totalWinners": null,
+        "totalAmount": null,
+        "oddEven": null,
+        "oddEvenWinners": null,
+        "oddEvenDividend": null,
+        "highLow": null,
+        "highLowWinners": null,
+        "highLowDividend": null,
+        "bullEye": null,
+        "bullEyeWinners": null,
+        "bullEyeDividend": null,
+        "category": 0,
+        "starDetails": [
+          {
+            "winners": 0,
+            "dividend": 5000000
+          },
+          {
+            "winners": 0,
+            "dividend": 250000
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 1,
+            "dividend": 2500
+          },
+          {
+            "winners": 1,
+            "dividend": 250
+          },
+          {
+            "winners": 11,
+            "dividend": 25
+          },
+          {
+            "winners": 5,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 1000000
+          },
+          {
+            "winners": 0,
+            "dividend": 100000
+          },
+          {
+            "winners": 0,
+            "dividend": 3000
+          },
+          {
+            "winners": 1,
+            "dividend": 500
+          },
+          {
+            "winners": 8,
+            "dividend": 100
+          },
+          {
+            "winners": 41,
+            "dividend": 25
+          },
+          {
+            "winners": 19,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 500000
+          },
+          {
+            "winners": 0,
+            "dividend": 20000
+          },
+          {
+            "winners": 1,
+            "dividend": 1000
+          },
+          {
+            "winners": 8,
+            "dividend": 200
+          },
+          {
+            "winners": 25,
+            "dividend": 25
+          },
+          {
+            "winners": 19,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 80000
+          },
+          {
+            "winners": 0,
+            "dividend": 3000
+          },
+          {
+            "winners": 1,
+            "dividend": 300
+          },
+          {
+            "winners": 25,
+            "dividend": 50
+          },
+          {
+            "winners": 104,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 25000
+          },
+          {
+            "winners": 1,
+            "dividend": 1000
+          },
+          {
+            "winners": 35,
+            "dividend": 200
+          },
+          {
+            "winners": 209,
+            "dividend": 25
+          },
+          {
+            "winners": 0,
+            "dividend": 7500
+          },
+          {
+            "winners": 7,
+            "dividend": 500
+          },
+          {
+            "winners": 68,
+            "dividend": 50
+          },
+          {
+            "winners": 0,
+            "dividend": 1000
+          },
+          {
+            "winners": 6,
+            "dividend": 100
+          },
+          {
+            "winners": 57,
+            "dividend": 25
+          },
+          {
+            "winners": 4,
+            "dividend": 500
+          },
+          {
+            "winners": 61,
+            "dividend": 50
+          },
+          {
+            "winners": 1,
+            "dividend": 75
+          },
+          {
+            "winners": 2,
+            "dividend": 25
+          },
+          {
+            "winners": 40,
+            "dividend": 50
+          }
+        ]
+      },
       {
         "winNoOnly": true,
         "drawTerm": 114046942,
@@ -9984,1141 +11346,6 @@
           },
           {
             "winners": 2,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 50
-          }
-        ]
-      },
-      {
-        "winNoOnly": true,
-        "drawTerm": 114046898,
-        "dDate": "0001-01-01T00:00:00",
-        "bigShowOrder": [
-          "05",
-          "07",
-          "14",
-          "16",
-          "25",
-          "31",
-          "35",
-          "36",
-          "42",
-          "43",
-          "44",
-          "46",
-          "52",
-          "56",
-          "58",
-          "61",
-          "65",
-          "69",
-          "70",
-          "76"
-        ],
-        "openShowOrder": [
-          "56",
-          "14",
-          "52",
-          "58",
-          "44",
-          "61",
-          "16",
-          "31",
-          "76",
-          "25",
-          "65",
-          "69",
-          "05",
-          "43",
-          "42",
-          "36",
-          "35",
-          "46",
-          "70",
-          "07"
-        ],
-        "bullEyeTop": "07",
-        "highLowTop": "－",
-        "oddEvenTop": "－",
-        "sellAmount": null,
-        "totalWinners": null,
-        "totalAmount": null,
-        "oddEven": null,
-        "oddEvenWinners": null,
-        "oddEvenDividend": null,
-        "highLow": null,
-        "highLowWinners": null,
-        "highLowDividend": null,
-        "bullEye": null,
-        "bullEyeWinners": null,
-        "bullEyeDividend": null,
-        "category": 0,
-        "starDetails": [
-          {
-            "winners": 0,
-            "dividend": 5000000
-          },
-          {
-            "winners": 0,
-            "dividend": 250000
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 0,
-            "dividend": 2500
-          },
-          {
-            "winners": 0,
-            "dividend": 250
-          },
-          {
-            "winners": 6,
-            "dividend": 25
-          },
-          {
-            "winners": 10,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 1000000
-          },
-          {
-            "winners": 0,
-            "dividend": 100000
-          },
-          {
-            "winners": 0,
-            "dividend": 3000
-          },
-          {
-            "winners": 2,
-            "dividend": 500
-          },
-          {
-            "winners": 4,
-            "dividend": 100
-          },
-          {
-            "winners": 15,
-            "dividend": 25
-          },
-          {
-            "winners": 11,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 500000
-          },
-          {
-            "winners": 0,
-            "dividend": 20000
-          },
-          {
-            "winners": 0,
-            "dividend": 1000
-          },
-          {
-            "winners": 2,
-            "dividend": 200
-          },
-          {
-            "winners": 13,
-            "dividend": 25
-          },
-          {
-            "winners": 12,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 80000
-          },
-          {
-            "winners": 1,
-            "dividend": 3000
-          },
-          {
-            "winners": 2,
-            "dividend": 300
-          },
-          {
-            "winners": 5,
-            "dividend": 50
-          },
-          {
-            "winners": 38,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 2,
-            "dividend": 1000
-          },
-          {
-            "winners": 11,
-            "dividend": 200
-          },
-          {
-            "winners": 76,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 7500
-          },
-          {
-            "winners": 1,
-            "dividend": 500
-          },
-          {
-            "winners": 32,
-            "dividend": 50
-          },
-          {
-            "winners": 0,
-            "dividend": 1000
-          },
-          {
-            "winners": 3,
-            "dividend": 100
-          },
-          {
-            "winners": 19,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 500
-          },
-          {
-            "winners": 36,
-            "dividend": 50
-          },
-          {
-            "winners": 0,
-            "dividend": 75
-          },
-          {
-            "winners": 0,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 50
-          }
-        ]
-      },
-      {
-        "winNoOnly": true,
-        "drawTerm": 114046897,
-        "dDate": "0001-01-01T00:00:00",
-        "bigShowOrder": [
-          "13",
-          "16",
-          "21",
-          "27",
-          "28",
-          "29",
-          "34",
-          "36",
-          "39",
-          "48",
-          "49",
-          "50",
-          "51",
-          "52",
-          "55",
-          "59",
-          "66",
-          "71",
-          "75",
-          "77"
-        ],
-        "openShowOrder": [
-          "34",
-          "27",
-          "21",
-          "52",
-          "51",
-          "71",
-          "13",
-          "75",
-          "49",
-          "55",
-          "39",
-          "59",
-          "36",
-          "50",
-          "16",
-          "77",
-          "66",
-          "29",
-          "48",
-          "28"
-        ],
-        "bullEyeTop": "28",
-        "highLowTop": "－",
-        "oddEvenTop": "－",
-        "sellAmount": null,
-        "totalWinners": null,
-        "totalAmount": null,
-        "oddEven": null,
-        "oddEvenWinners": null,
-        "oddEvenDividend": null,
-        "highLow": null,
-        "highLowWinners": null,
-        "highLowDividend": null,
-        "bullEye": null,
-        "bullEyeWinners": null,
-        "bullEyeDividend": null,
-        "category": 0,
-        "starDetails": [
-          {
-            "winners": 0,
-            "dividend": 5000000
-          },
-          {
-            "winners": 0,
-            "dividend": 250000
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 0,
-            "dividend": 2500
-          },
-          {
-            "winners": 2,
-            "dividend": 250
-          },
-          {
-            "winners": 1,
-            "dividend": 25
-          },
-          {
-            "winners": 14,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 1000000
-          },
-          {
-            "winners": 0,
-            "dividend": 100000
-          },
-          {
-            "winners": 0,
-            "dividend": 3000
-          },
-          {
-            "winners": 0,
-            "dividend": 500
-          },
-          {
-            "winners": 1,
-            "dividend": 100
-          },
-          {
-            "winners": 23,
-            "dividend": 25
-          },
-          {
-            "winners": 23,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 500000
-          },
-          {
-            "winners": 0,
-            "dividend": 20000
-          },
-          {
-            "winners": 0,
-            "dividend": 1000
-          },
-          {
-            "winners": 1,
-            "dividend": 200
-          },
-          {
-            "winners": 13,
-            "dividend": 25
-          },
-          {
-            "winners": 15,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 80000
-          },
-          {
-            "winners": 1,
-            "dividend": 3000
-          },
-          {
-            "winners": 2,
-            "dividend": 300
-          },
-          {
-            "winners": 12,
-            "dividend": 50
-          },
-          {
-            "winners": 53,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 10,
-            "dividend": 1000
-          },
-          {
-            "winners": 30,
-            "dividend": 200
-          },
-          {
-            "winners": 96,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 7500
-          },
-          {
-            "winners": 1,
-            "dividend": 500
-          },
-          {
-            "winners": 31,
-            "dividend": 50
-          },
-          {
-            "winners": 1,
-            "dividend": 1000
-          },
-          {
-            "winners": 2,
-            "dividend": 100
-          },
-          {
-            "winners": 6,
-            "dividend": 25
-          },
-          {
-            "winners": 1,
-            "dividend": 500
-          },
-          {
-            "winners": 28,
-            "dividend": 50
-          },
-          {
-            "winners": 3,
-            "dividend": 75
-          },
-          {
-            "winners": 9,
-            "dividend": 25
-          },
-          {
-            "winners": 1,
-            "dividend": 50
-          }
-        ]
-      },
-      {
-        "winNoOnly": true,
-        "drawTerm": 114046896,
-        "dDate": "0001-01-01T00:00:00",
-        "bigShowOrder": [
-          "01",
-          "16",
-          "17",
-          "24",
-          "25",
-          "26",
-          "28",
-          "34",
-          "35",
-          "38",
-          "39",
-          "42",
-          "46",
-          "48",
-          "49",
-          "51",
-          "53",
-          "55",
-          "62",
-          "80"
-        ],
-        "openShowOrder": [
-          "48",
-          "49",
-          "35",
-          "55",
-          "01",
-          "80",
-          "62",
-          "46",
-          "24",
-          "51",
-          "53",
-          "34",
-          "38",
-          "17",
-          "25",
-          "39",
-          "26",
-          "28",
-          "16",
-          "42"
-        ],
-        "bullEyeTop": "42",
-        "highLowTop": "－",
-        "oddEvenTop": "－",
-        "sellAmount": null,
-        "totalWinners": null,
-        "totalAmount": null,
-        "oddEven": null,
-        "oddEvenWinners": null,
-        "oddEvenDividend": null,
-        "highLow": null,
-        "highLowWinners": null,
-        "highLowDividend": null,
-        "bullEye": null,
-        "bullEyeWinners": null,
-        "bullEyeDividend": null,
-        "category": 0,
-        "starDetails": [
-          {
-            "winners": 0,
-            "dividend": 5000000
-          },
-          {
-            "winners": 0,
-            "dividend": 250000
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 0,
-            "dividend": 2500
-          },
-          {
-            "winners": 0,
-            "dividend": 250
-          },
-          {
-            "winners": 6,
-            "dividend": 25
-          },
-          {
-            "winners": 10,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 1000000
-          },
-          {
-            "winners": 0,
-            "dividend": 100000
-          },
-          {
-            "winners": 0,
-            "dividend": 3000
-          },
-          {
-            "winners": 3,
-            "dividend": 500
-          },
-          {
-            "winners": 9,
-            "dividend": 100
-          },
-          {
-            "winners": 21,
-            "dividend": 25
-          },
-          {
-            "winners": 22,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 500000
-          },
-          {
-            "winners": 0,
-            "dividend": 20000
-          },
-          {
-            "winners": 2,
-            "dividend": 1000
-          },
-          {
-            "winners": 4,
-            "dividend": 200
-          },
-          {
-            "winners": 14,
-            "dividend": 25
-          },
-          {
-            "winners": 25,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 80000
-          },
-          {
-            "winners": 0,
-            "dividend": 3000
-          },
-          {
-            "winners": 2,
-            "dividend": 300
-          },
-          {
-            "winners": 11,
-            "dividend": 50
-          },
-          {
-            "winners": 25,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 2,
-            "dividend": 1000
-          },
-          {
-            "winners": 35,
-            "dividend": 200
-          },
-          {
-            "winners": 95,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 7500
-          },
-          {
-            "winners": 1,
-            "dividend": 500
-          },
-          {
-            "winners": 20,
-            "dividend": 50
-          },
-          {
-            "winners": 1,
-            "dividend": 1000
-          },
-          {
-            "winners": 0,
-            "dividend": 100
-          },
-          {
-            "winners": 10,
-            "dividend": 25
-          },
-          {
-            "winners": 4,
-            "dividend": 500
-          },
-          {
-            "winners": 19,
-            "dividend": 50
-          },
-          {
-            "winners": 2,
-            "dividend": 75
-          },
-          {
-            "winners": 8,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 50
-          }
-        ]
-      },
-      {
-        "winNoOnly": true,
-        "drawTerm": 114046895,
-        "dDate": "0001-01-01T00:00:00",
-        "bigShowOrder": [
-          "03",
-          "14",
-          "24",
-          "25",
-          "30",
-          "31",
-          "38",
-          "43",
-          "44",
-          "46",
-          "47",
-          "49",
-          "52",
-          "54",
-          "57",
-          "59",
-          "62",
-          "66",
-          "68",
-          "77"
-        ],
-        "openShowOrder": [
-          "52",
-          "77",
-          "25",
-          "66",
-          "31",
-          "49",
-          "57",
-          "14",
-          "68",
-          "54",
-          "43",
-          "38",
-          "24",
-          "59",
-          "03",
-          "62",
-          "30",
-          "47",
-          "46",
-          "44"
-        ],
-        "bullEyeTop": "44",
-        "highLowTop": "大",
-        "oddEvenTop": "－",
-        "sellAmount": null,
-        "totalWinners": null,
-        "totalAmount": null,
-        "oddEven": null,
-        "oddEvenWinners": null,
-        "oddEvenDividend": null,
-        "highLow": null,
-        "highLowWinners": null,
-        "highLowDividend": null,
-        "bullEye": null,
-        "bullEyeWinners": null,
-        "bullEyeDividend": null,
-        "category": 0,
-        "starDetails": [
-          {
-            "winners": 0,
-            "dividend": 5000000
-          },
-          {
-            "winners": 0,
-            "dividend": 250000
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 0,
-            "dividend": 2500
-          },
-          {
-            "winners": 1,
-            "dividend": 250
-          },
-          {
-            "winners": 3,
-            "dividend": 25
-          },
-          {
-            "winners": 3,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 1000000
-          },
-          {
-            "winners": 0,
-            "dividend": 100000
-          },
-          {
-            "winners": 1,
-            "dividend": 3000
-          },
-          {
-            "winners": 0,
-            "dividend": 500
-          },
-          {
-            "winners": 5,
-            "dividend": 100
-          },
-          {
-            "winners": 14,
-            "dividend": 25
-          },
-          {
-            "winners": 11,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 500000
-          },
-          {
-            "winners": 0,
-            "dividend": 20000
-          },
-          {
-            "winners": 0,
-            "dividend": 1000
-          },
-          {
-            "winners": 4,
-            "dividend": 200
-          },
-          {
-            "winners": 13,
-            "dividend": 25
-          },
-          {
-            "winners": 17,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 80000
-          },
-          {
-            "winners": 0,
-            "dividend": 3000
-          },
-          {
-            "winners": 0,
-            "dividend": 300
-          },
-          {
-            "winners": 8,
-            "dividend": 50
-          },
-          {
-            "winners": 50,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 1,
-            "dividend": 1000
-          },
-          {
-            "winners": 29,
-            "dividend": 200
-          },
-          {
-            "winners": 74,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 7500
-          },
-          {
-            "winners": 3,
-            "dividend": 500
-          },
-          {
-            "winners": 17,
-            "dividend": 50
-          },
-          {
-            "winners": 0,
-            "dividend": 1000
-          },
-          {
-            "winners": 1,
-            "dividend": 100
-          },
-          {
-            "winners": 12,
-            "dividend": 25
-          },
-          {
-            "winners": 4,
-            "dividend": 500
-          },
-          {
-            "winners": 18,
-            "dividend": 50
-          },
-          {
-            "winners": 0,
-            "dividend": 75
-          },
-          {
-            "winners": 2,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 50
-          }
-        ]
-      },
-      {
-        "winNoOnly": true,
-        "drawTerm": 114046894,
-        "dDate": "0001-01-01T00:00:00",
-        "bigShowOrder": [
-          "04",
-          "06",
-          "08",
-          "14",
-          "17",
-          "22",
-          "24",
-          "26",
-          "27",
-          "28",
-          "33",
-          "52",
-          "53",
-          "54",
-          "56",
-          "57",
-          "58",
-          "61",
-          "65",
-          "66"
-        ],
-        "openShowOrder": [
-          "04",
-          "33",
-          "08",
-          "17",
-          "22",
-          "52",
-          "26",
-          "58",
-          "65",
-          "06",
-          "27",
-          "24",
-          "14",
-          "66",
-          "28",
-          "53",
-          "54",
-          "61",
-          "57",
-          "56"
-        ],
-        "bullEyeTop": "56",
-        "highLowTop": "－",
-        "oddEvenTop": "雙",
-        "sellAmount": null,
-        "totalWinners": null,
-        "totalAmount": null,
-        "oddEven": null,
-        "oddEvenWinners": null,
-        "oddEvenDividend": null,
-        "highLow": null,
-        "highLowWinners": null,
-        "highLowDividend": null,
-        "bullEye": null,
-        "bullEyeWinners": null,
-        "bullEyeDividend": null,
-        "category": 0,
-        "starDetails": [
-          {
-            "winners": 0,
-            "dividend": 5000000
-          },
-          {
-            "winners": 0,
-            "dividend": 250000
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 0,
-            "dividend": 2500
-          },
-          {
-            "winners": 3,
-            "dividend": 250
-          },
-          {
-            "winners": 9,
-            "dividend": 25
-          },
-          {
-            "winners": 14,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 1000000
-          },
-          {
-            "winners": 0,
-            "dividend": 100000
-          },
-          {
-            "winners": 0,
-            "dividend": 3000
-          },
-          {
-            "winners": 3,
-            "dividend": 500
-          },
-          {
-            "winners": 13,
-            "dividend": 100
-          },
-          {
-            "winners": 22,
-            "dividend": 25
-          },
-          {
-            "winners": 12,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 500000
-          },
-          {
-            "winners": 0,
-            "dividend": 20000
-          },
-          {
-            "winners": 3,
-            "dividend": 1000
-          },
-          {
-            "winners": 4,
-            "dividend": 200
-          },
-          {
-            "winners": 10,
-            "dividend": 25
-          },
-          {
-            "winners": 17,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 80000
-          },
-          {
-            "winners": 1,
-            "dividend": 3000
-          },
-          {
-            "winners": 6,
-            "dividend": 300
-          },
-          {
-            "winners": 11,
-            "dividend": 50
-          },
-          {
-            "winners": 52,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 25000
-          },
-          {
-            "winners": 1,
-            "dividend": 1000
-          },
-          {
-            "winners": 39,
-            "dividend": 200
-          },
-          {
-            "winners": 106,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 7500
-          },
-          {
-            "winners": 10,
-            "dividend": 500
-          },
-          {
-            "winners": 18,
-            "dividend": 50
-          },
-          {
-            "winners": 0,
-            "dividend": 1000
-          },
-          {
-            "winners": 4,
-            "dividend": 100
-          },
-          {
-            "winners": 8,
-            "dividend": 25
-          },
-          {
-            "winners": 0,
-            "dividend": 500
-          },
-          {
-            "winners": 19,
-            "dividend": 50
-          },
-          {
-            "winners": 0,
-            "dividend": 75
-          },
-          {
-            "winners": 0,
             "dividend": 25
           },
           {
