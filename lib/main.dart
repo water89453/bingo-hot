@@ -2,18 +2,19 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() => runApp(const StatsApp());
 
-/// 你的 GitHub Pages 上的 JSON（已由 workflow 發佈到 gh-pages）
+/// 你 GitHub Pages 上的 JSON 路徑
 const kRemoteJsonUrl =
     'https://water89453.github.io/bingo-hot/data/draws.json';
 
-const _cacheKeyData = 'remote_draws_v1';
-const _cacheKeyTime = 'remote_draws_time_v1';
+const _cacheKeyData = 'remote_draws_v2';
+const _cacheKeyTime = 'remote_draws_time_v2';
 
 class StatsApp extends StatelessWidget {
   const StatsApp({super.key});
@@ -28,12 +29,14 @@ class StatsApp extends StatelessWidget {
   }
 }
 
-/// 一期資料：20 顆號碼 + 超級獎號
+/// 一期資料（支援兩種鍵名格式）:
+/// A. { term, numbers[20], super, date? }
+/// B. { period, balls[20], super, date? }
 class Draw {
-  final String period;   // 期別（字串存、以數字排序）
-  final String date;     // 可能為空字串
-  final List<int> balls; // 20 顆（1..80、不重複、排序）
-  final int superBall;   // 1..80
+  final String period;
+  final String date; // 可能為空字串
+  final List<int> balls; // 20 顆
+  final int superBall; // 1..80
 
   const Draw({
     required this.period,
@@ -42,26 +45,37 @@ class Draw {
     required this.superBall,
   });
 
-  /// 兼容 {period, balls, super} 與 {term, numbers, super}
   factory Draw.fromJson(Map<String, dynamic> json) {
-    final period = '${json['period'] ?? json['term'] ?? ''}'.trim();
-    final date = '${json['date'] ?? ''}'.trim();
+    // 期別
+    final String period = (() {
+      final a = json['term'];
+      final b = json['period'];
+      if (a != null && '$a'.trim().isNotEmpty) return '$a';
+      if (b != null && '$b'.trim().isNotEmpty) return '$b';
+      return '';
+    })();
 
-    final rawList = (json['balls'] ?? json['numbers'] ?? []) as List? ?? const [];
-    final balls = rawList
+    // 開獎號（兩種鍵名）
+    final List rawBalls = (json['numbers'] as List?) ?? (json['balls'] as List?) ?? const [];
+    final balls = rawBalls
         .map((e) => int.tryParse('$e'))
         .whereType<int>()
-        .where((n) => n >= 1 && n <= 80)
-        .toSet()
+        .where((v) => v >= 1 && v <= 80)
+        .toSet() // 去重
         .toList()
       ..sort();
 
-    final supParsed = int.tryParse('${json['super'] ?? ''}');
-    final sup = (supParsed ?? (balls.isNotEmpty ? balls.last : 0)).clamp(1, 80);
+    // 超級獎號
+    int sup = int.tryParse('${json['super']}') ?? 0;
+    if (sup <= 0 && balls.isNotEmpty) {
+      // 沒給就以最後一顆當作 super（保險）
+      sup = balls.last;
+    }
+    sup = sup.clamp(1, 80);
 
     return Draw(
       period: period,
-      date: date,
+      date: '${json['date'] ?? ''}',
       balls: balls,
       superBall: sup,
     );
@@ -82,7 +96,7 @@ class StatsHome extends StatefulWidget {
 }
 
 class _StatsHomeState extends State<StatsHome> {
-  List<Draw> _draws = []; // 新的在最前（index 0）
+  List<Draw> _draws = []; // 新到舊
   int sampleSize = 100;
 
   bool _loading = false;
@@ -95,7 +109,7 @@ class _StatsHomeState extends State<StatsHome> {
   void initState() {
     super.initState();
     _loadCache().then((_) => _fetchRemote(showSnackbar: false));
-    // 可選：每 2 分鐘嘗試刷新一次
+    // 每 2 分鐘嘗試更新一次
     _autoTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       _fetchRemote(showSnackbar: false);
     });
@@ -145,32 +159,21 @@ class _StatsHomeState extends State<StatsHome> {
     });
 
     try {
-      // 加上 cache buster 避免 CDN/瀏覽器快取
+      // 加上 cache buster 避免 CDN/瀏覽器快取卡住
       final uri = Uri.parse(
-        '$kRemoteJsonUrl?t=${DateTime.now().millisecondsSinceEpoch}',
-      );
+          '$kRemoteJsonUrl?t=${DateTime.now().millisecondsSinceEpoch}');
       final resp = await http.get(uri).timeout(const Duration(seconds: 20));
       if (resp.statusCode != 200) {
         throw Exception('HTTP ${resp.statusCode}');
       }
-
       final body = resp.body.trim();
-      if (body.isEmpty) {
-        throw Exception('空內容');
-      }
 
-      final decoded = jsonDecode(body);
-      if (decoded is! List) {
-        throw Exception('JSON 根節點不是 List');
-      }
-
-      final list = decoded
+      final list = (jsonDecode(body) as List)
           .map((e) => Draw.fromJson(Map<String, dynamic>.from(e)))
           .toList();
 
-      // 以「數字」比較期別，避免字串比較錯序
-      list.sort((a, b) =>
-          (int.tryParse(b.period) ?? 0).compareTo(int.tryParse(a.period) ?? 0));
+      // 依「期別字串」倒序；若期別都是數字字串，這樣基本上會符合時間排序
+      list.sort((a, b) => b.period.compareTo(a.period));
 
       setState(() {
         _draws = list;
@@ -344,7 +347,7 @@ class _StatsHomeState extends State<StatsHome> {
           Expanded(
             child: GridView.count(
               padding: const EdgeInsets.all(8),
-              crossAxisCount: 5, // 手機較易讀；平板可調
+              crossAxisCount: 5, // 手機易讀；平板可調 8
               childAspectRatio: 1.2,
               children: [
                 for (int i = 1; i <= 80; i++)
@@ -385,7 +388,7 @@ class _StatsHomeState extends State<StatsHome> {
               ],
             ),
           ),
-          // 機率長條圖
+          // 長條圖
           SizedBox(
             height: 220,
             child: Padding(
@@ -574,8 +577,9 @@ class _RecommendDialogState extends State<_RecommendDialog> {
                   const SizedBox(width: 8),
                   DropdownButton<int>(
                     value: pickCount,
-                    items: const [8, 10, 12, 15]
-                        .map((e) => DropdownMenuItem(value: e, child: Text('$e')))
+                    items: List.generate(10, (i) => i + 1)
+                        .map((e) =>
+                            DropdownMenuItem(value: e, child: Text('$e')))
                         .toList(),
                     onChanged: (v) => setState(() => pickCount = v ?? 10),
                   ),
